@@ -71,6 +71,7 @@
 #ifdef VARIANT_PQC
 #include "mldsa/wrapper.h"
 #include "mlkem/wrapper.h"
+#include "falcon/wrapper.h"
 #include "pqm4_hal/pinata_callbacks.h"
 #endif
 
@@ -125,10 +126,17 @@ unsigned char etxBuf[256] ={};
 #ifdef VARIANT_PQC
 MlDsaState g_mldsa;
 MlKemState g_mlkem;
+FalconState g_falcon;
 void handle_mldsa_sign_start() {
 	BEGIN_INTERESTING_STUFF;
 }
 void handle_mldsa_sign_finish() {
+	END_INTERESTING_STUFF;
+}
+void handle_falcon_decode_start() {
+	BEGIN_INTERESTING_STUFF;
+}
+void handle_falcon_decode_finish() {
 	END_INTERESTING_STUFF;
 }
 #endif
@@ -143,6 +151,8 @@ int main(void) {
 #ifdef VARIANT_PQC
 	PINATA_PATCH_mldsa_set_sign_start_callback(&handle_mldsa_sign_start);
 	PINATA_PATCH_mldsa_set_sign_finish_callback(&handle_mldsa_sign_finish);
+	PINATA_PATCH_falcon_set_decode_start_callback(&handle_falcon_decode_start);
+	PINATA_PATCH_falcon_set_decode_finish_callback(&handle_falcon_decode_finish);
 #else
 	int payload_len, i, glitchedBoot, authenticated, counter=0;
 	ErrorStatus cryptoCompletedOK=ERROR;
@@ -374,6 +384,59 @@ int main(void) {
 			case CMD_SW_MLKEM_GET_KEY_SIZES: {
 				const uint16_t publicKeySize = MLKEM_PUBLIC_KEY_SIZE;
 				const uint16_t privateKeySize = MLKEM_PRIVATE_KEY_SIZE;
+				// Send the response; MUST be in little-endian order!
+				send_bytes(sizeof(publicKeySize), (const uint8_t*)&publicKeySize);
+				send_bytes(sizeof(privateKeySize), (const uint8_t*)&privateKeySize);
+				break;
+			}
+
+			case CMD_SW_FALCON_SET_PUBLIC_AND_PRIVATE_KEY: {
+				// Receive the input parameters and handle the request.
+				get_bytes(FALCON_PUBLIC_KEY_SIZE, FalconState_getPublicKey(&g_falcon));
+				get_bytes(FALCON_PRIVATE_KEY_SIZE, FalconState_getPrivateKey(&g_falcon));
+
+				// Return the response.
+				send_char(0);
+				break;
+			}
+
+			case CMD_SW_FALCON_SIGN: {
+				// Receive the input parameters.
+				uint8_t* signedMessageBuffer = FalconState_getScratchPad(&g_falcon);
+				get_bytes(FALCON_MESSAGE_SIZE, signedMessageBuffer + FALCON_SIGNATURE_SIZE);
+
+				// Handle the request.
+				// Note: GPIO Pin 2 is toggled inside FalconState_sign() around the
+				// secret-key trim_i8_decode() calls only, not the whole signing operation.
+				int result = FalconState_sign(&g_falcon, signedMessageBuffer, signedMessageBuffer + FALCON_SIGNATURE_SIZE);
+
+				if (result == 0) {
+					// OK: The message is now signed, let's send the signature of the message back.
+					send_char(0);
+					send_bytes(FALCON_SIGNATURE_SIZE, signedMessageBuffer);
+				} else {
+					// ERROR: Signing the message failed.
+					send_char(1);
+				}
+				break;
+			}
+
+			case CMD_SW_FALCON_VERIFY: {
+				// Receive the input parameters.
+				uint8_t* signedMessageBuffer = FalconState_getScratchPad(&g_falcon);
+				get_bytes(FALCON_SIGNED_MESSAGE_SIZE, signedMessageBuffer);
+
+				// Handle the request.
+				int result = FalconState_verify(&g_falcon, signedMessageBuffer, signedMessageBuffer + FALCON_SIGNATURE_SIZE);
+
+				// Return the response.
+				send_char(result == 0 ? 0 : 1);
+				break;
+			}
+
+			case CMD_SW_FALCON_GET_KEY_SIZES: {
+				const uint16_t publicKeySize = FALCON_PUBLIC_KEY_SIZE;
+				const uint16_t privateKeySize = FALCON_PRIVATE_KEY_SIZE;
 				// Send the response; MUST be in little-endian order!
 				send_bytes(sizeof(publicKeySize), (const uint8_t*)&publicKeySize);
 				send_bytes(sizeof(privateKeySize), (const uint8_t*)&privateKeySize);

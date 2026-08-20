@@ -225,6 +225,55 @@
 ///   No reply is sent back.
 #define CMD_SW_MLDSA_NTT 0x9A
 
+/// Set the public and private key for the Falcon (padded-512) crypto-system.
+/// The public and private key MUST be valid. No validation is
+/// done by the Pinata.
+///
+/// Expected Input:
+///   public key bytes of size FALCON_PUBLIC_KEY_SIZE, followed by
+///   private key bytes of size FALCON_PRIVATE_KEY_SIZE.
+///
+/// Output:
+///   One byte; the byte is always zero.
+#define CMD_SW_FALCON_SET_PUBLIC_AND_PRIVATE_KEY 0x9B
+
+/// Sign a message, using the private key provided via
+/// CMD_SW_FALCON_SET_PUBLIC_AND_PRIVATE_KEY.
+///
+/// The trigger (GPIO PC2) brackets only the decoding of the packed secret
+/// key (the trim_i8_decode() calls that unpack f, g, F), not the whole
+/// signing operation.
+///
+/// Expected Input:
+///   message of length FALCON_MESSAGE_SIZE bytes.
+///
+/// Output:
+///   One byte; 0 on success, non-zero on failure. On success, followed by
+///   the signature of the message, which has size FALCON_SIGNATURE_SIZE.
+#define CMD_SW_FALCON_SIGN 0x9C
+
+/// Verify a signed message, using the public key provided via
+/// CMD_SW_FALCON_SET_PUBLIC_AND_PRIVATE_KEY.
+///
+/// Expected Input:
+///   Signature of length FALCON_SIGNATURE_SIZE, followed by
+///   message of length FALCON_MESSAGE_SIZE.
+///
+/// Output:
+///   One byte; the byte is 0 if the signature of the message is valid,
+///   non-zero otherwise.
+#define CMD_SW_FALCON_VERIFY 0x9D
+
+/// Get the public and private key sizes.
+///
+/// Expected Input:
+///   None
+///
+/// Output:
+///   16-bit unsigned integer in little endian order that contains the public key size, followed by
+///   16-bit unsigned integer in little endian order that contains the private key size
+#define CMD_SW_FALCON_GET_KEY_SIZES 0x9E
+
 #define CMD_SWDES_ENC_MISALIGNED 0x14
 #define CMD_SWAES128_ENC_MISALIGNED 0x1E
 #define CMD_SWDES_ENC_DUMMYROUNDS 0x15

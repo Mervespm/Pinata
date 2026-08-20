@@ -1,0 +1,25 @@
+diff --git a/crypto_sign/fndsa_provisional-512/ref/sign.c b/crypto_sign/fndsa_provisional-512/ref/sign.c
+index ebc7f2e..b45a9de 100644
+--- a/crypto_sign/fndsa_provisional-512/ref/sign.c
++++ b/crypto_sign/fndsa_provisional-512/ref/sign.c
+@@ -4,6 +4,8 @@
+
+ #include "sign_inner.h"
+
++#include "pinata_callbacks.h"
++
+ /* Verified properties at this point:
+       degree is acceptable
+       encoded signing key has the proper size
+@@ -44,7 +46,11 @@ sign_step1(unsigned logn, const uint8_t *sign_key,
+ 		break;
+ 	}
+ 	size_t k, j = 1;
++	// Trigger brackets only the trim_i8_decode() call unpacking f from the
++	// packed secret key; g and F are decoded after the trigger ends.
++	PINATA_PATCH_falcon_decode_start_callback();
+ 	k = trim_i8_decode(logn, sign_key + j, f, nbits);
++	PINATA_PATCH_falcon_decode_finish_callback();
+ 	if (k == 0) {
+ 		return 0;
+ 	}

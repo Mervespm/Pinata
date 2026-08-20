@@ -8,3 +8,14 @@ extern PINATA_PATCH_mldsa_sign_finish_callback_t PINATA_PATCH_mldsa_finish_callb
 
 PINATA_PATCH_mldsa_sign_start_callback_t PINATA_PATCH_mldsa_set_sign_start_callback(PINATA_PATCH_mldsa_sign_start_callback_t f);
 PINATA_PATCH_mldsa_sign_finish_callback_t PINATA_PATCH_mldsa_set_sign_finish_callback(PINATA_PATCH_mldsa_sign_finish_callback_t f);
+
+// Falcon: brackets the trim_i8_decode() calls in do_sign() that unpack the
+// secret polynomials f, g, F from the packed secret key, ahead of signing.
+typedef void(* PINATA_PATCH_falcon_decode_start_callback_t)();
+typedef void(* PINATA_PATCH_falcon_decode_finish_callback_t)();
+
+extern PINATA_PATCH_falcon_decode_start_callback_t PINATA_PATCH_falcon_decode_start_callback;
+extern PINATA_PATCH_falcon_decode_finish_callback_t PINATA_PATCH_falcon_decode_finish_callback;
+
+PINATA_PATCH_falcon_decode_start_callback_t PINATA_PATCH_falcon_set_decode_start_callback(PINATA_PATCH_falcon_decode_start_callback_t f);
+PINATA_PATCH_falcon_decode_finish_callback_t PINATA_PATCH_falcon_set_decode_finish_callback(PINATA_PATCH_falcon_decode_finish_callback_t f);

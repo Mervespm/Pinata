@@ -83,10 +83,15 @@ foreach(TARGET_NAME ${TARGETS})
 
     # Optionally define a target to create a .dfu file from a .bin file.
     if(DFU_SUFFIX)
+        if(CMAKE_HOST_WIN32)
+            set(PINATA_NULL_DEVICE "NUL")
+        else()
+            set(PINATA_NULL_DEVICE "/dev/null")
+        endif()
         add_custom_command(
             OUTPUT ${TARGET_NAME}.dfu
             COMMAND ${CMAKE_OBJCOPY} -Obinary $<TARGET_FILE:${TARGET_NAME}> ${TARGET_NAME}.dfu
-            COMMAND ${DFU_SUFFIX} -p ${PINATA_PID} -v ${PINATA_VID} -d ${PINATA_DID} -a ${TARGET_NAME}.dfu >/dev/null
+            COMMAND ${DFU_SUFFIX} -p ${PINATA_PID} -v ${PINATA_VID} -d ${PINATA_DID} -a ${TARGET_NAME}.dfu >${PINATA_NULL_DEVICE}
             DEPENDS ${TARGET_NAME}
             COMMENT "Creating ${TARGET_NAME}.dfu from ${TARGET_NAME}"
         )
@@ -159,6 +164,7 @@ add_licensed_subdir(ecc                "classic;hw" BSD-3-Clause-Clear     https
 add_licensed_subdir(curve25519_CortexM "classic;hw" CC0-1.0                https://munacl.cryptojedi.org/curve25519-cortexm0.shtml https://munacl.cryptojedi.org/data/curve25519-cortexm0-20150813.tar.bz2)
 add_licensed_subdir(mldsa              pqc          CC0-1.0                https://github.com/mupq/pqm4                            https://github.com/mupq/pqm4.git)
 add_licensed_subdir(mlkem              pqc          CC0-1.0                https://github.com/mupq/pqm4                            https://github.com/mupq/pqm4.git)
+add_licensed_subdir(falcon             pqc          Unlicense              https://github.com/mupq/pqm4                            https://github.com/mupq/mupq.git)
 #                   Subdirectory       Targets      SPDX License           Informational Website                                   Source Code Origin
 
 add_licensed_subdir(
@@ -212,11 +218,38 @@ set(mlkem_source_files
     "${mlkem_base_dir}/symmetric-fips202.c"
     "${mlkem_base_dir}/verify.c"
 )
-target_sources(pqc PRIVATE pqm4_hal/randombytes.c pqm4_hal/pinata_callbacks.c ${mupq_common_source_files} ${mldsa_source_files} ${mlkem_source_files})
+set(fndsa_base_dir "${pqm4_SOURCE_DIR}/crypto_sign/fndsa_provisional-512/m4f")
+set(fndsa_source_files
+    "${fndsa_base_dir}/codec.c"
+    "${fndsa_base_dir}/codec_cm4.s"
+    "${fndsa_base_dir}/mq.c"
+    "${fndsa_base_dir}/mq_cm4.s"
+    "${fndsa_base_dir}/sha3.c"
+    "${fndsa_base_dir}/sha3_cm4.s"
+    "${fndsa_base_dir}/sign.c"
+    "${fndsa_base_dir}/sign_core.c"
+    "${fndsa_base_dir}/sign_fpoly.c"
+    "${fndsa_base_dir}/sign_fpr.c"
+    "${fndsa_base_dir}/sign_fpr_cm4.s"
+    "${fndsa_base_dir}/sign_sampler.c"
+    "${fndsa_base_dir}/sign_sampler_cm4.s"
+    "${fndsa_base_dir}/sysrng.c"
+    "${fndsa_base_dir}/util.c"
+    "${fndsa_base_dir}/vrfy.c"
+)
+# Note: api.c is intentionally NOT compiled. It defines generic crypto_sign_keypair/
+# crypto_sign/crypto_sign_open symbols that would collide with ML-DSA's identically-named
+# functions in this same firmware image. We call the uniquely-named fndsa_*() functions
+# (declared in fndsa.h) directly from falcon/wrapper.c instead.
+# kgen*.c is intentionally NOT compiled: the device only signs/verifies with a keypair
+# supplied by the host (mirroring ML-DSA/ML-KEM), it never generates its own keypair.
+target_sources(pqc PRIVATE pqm4_hal/randombytes.c pqm4_hal/pinata_callbacks.c ${mupq_common_source_files} ${mldsa_source_files} ${mlkem_source_files} ${fndsa_source_files})
 set_source_files_properties(mldsa/wrapper.c PROPERTIES INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/pqm4_hal;${mldsa_base_dir}")
 set_source_files_properties(mlkem/wrapper.c PROPERTIES INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/pqm4_hal;${mlkem_base_dir}")
+set_source_files_properties(falcon/wrapper.c PROPERTIES INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/pqm4_hal;${fndsa_base_dir}")
 set_source_files_properties(${mldsa_source_files} PROPERTIES INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/pqm4_hal;${mupq_common_dir}")
 set_source_files_properties(${mlkem_source_files} PROPERTIES INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/pqm4_hal;${mupq_common_dir}")
+set_source_files_properties(${fndsa_source_files} PROPERTIES INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/pqm4_hal")
 target_compile_definitions(pqc PRIVATE VARIANT_PQC $<$<BOOL:${RANDOM_SIGNING}>:DILITHIUM_RANDOMIZED_SIGNING>)
 
 # For the short triggering in ML-DSA sign, we need to modify the sign.c source a bit.
@@ -245,6 +278,36 @@ add_custom_target(apply-mldsa-sign-patch
 )
 
 add_dependencies(pqc apply-mldsa-sign-patch)
+
+# For the tight triggering around the Falcon (FN-DSA) secret-key decode, we
+# need to modify sign.c the same way. sign.c lives in the nested mupq
+# submodule (fndsa_provisional-512/m4f/sign.c is a symlink into
+# mupq/crypto_sign/fndsa_provisional-512/ref/sign.c), so the patch is applied
+# with mupq as the working directory instead of pqm4_SOURCE_DIR itself.
+add_custom_command(
+    OUTPUT
+        "${CMAKE_CURRENT_BINARY_DIR}/fndsa-sign.patch.applied"
+    COMMAND
+        "${GIT_EXECUTABLE}" checkout .
+    COMMAND
+        "${GIT_EXECUTABLE}" apply "${CMAKE_CURRENT_SOURCE_DIR}/../patches/fndsa-sign.patch"
+    COMMAND
+        "${CMAKE_COMMAND}" -E touch "${CMAKE_CURRENT_BINARY_DIR}/fndsa-sign.patch.applied"
+    WORKING_DIRECTORY
+        "${pqm4_SOURCE_DIR}/mupq"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/../patches/fndsa-sign.patch"
+        "${GIT_EXECUTABLE}"
+    COMMENT
+        "Applying patch ${CMAKE_CURRENT_SOURCE_DIR}/../patches/fndsa-sign.patch"
+)
+
+add_custom_target(apply-fndsa-sign-patch
+    DEPENDS
+        "${CMAKE_CURRENT_BINARY_DIR}/fndsa-sign.patch.applied"
+)
+
+add_dependencies(pqc apply-fndsa-sign-patch)
 
 # After having collected all license information into lists, we now generate
 # the notice file.
