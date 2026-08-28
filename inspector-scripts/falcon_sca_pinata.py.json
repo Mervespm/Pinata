@@ -1,0 +1,30 @@
+{
+  "constant": [
+    {
+      "label": "Result file name",
+      "value": "SCA Falcon Pinata Acquisition.trs"
+    },
+    {
+      "label": "Serial target port",
+      "value": "COM6"
+    },
+    {
+      "label": "Oscilloscope",
+      "value": "PicoScope 3000a Series @ JZ258/0229"
+    },
+    {
+      "label": "Total number of measurements",
+      "value": 12600
+    },
+    {
+      "label": "Key set file prefix",
+      "value": "falcon_sweep"
+    },
+    {
+      "label": "Traces per key (profiling)",
+      "value": 200
+    }
+  ],
+  "dynamic": [],
+  "trainable": []
+}

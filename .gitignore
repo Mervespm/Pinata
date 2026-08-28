@@ -4,3 +4,6 @@
 *.o
 .cache/
 build/
+__pycache__/
+*.pyc
+inspector-scripts/falcon_captures/

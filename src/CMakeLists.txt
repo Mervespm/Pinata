@@ -66,7 +66,15 @@ foreach(TARGET_NAME ${TARGETS})
 
     # Define an executable target for the current TARGET_NAME.
     string(TOUPPER ${TARGET_NAME} TARGET_NAME_UPPER)
-    add_executable(${TARGET_NAME} main.c)
+    # hw builds from its own permanent, dedicated source file (main_classic.c)
+    # instead of the shared main.c, which is the Falcon-only trimmed variant
+    # for this project - keeps the two firmwares fully decoupled with no
+    # stash/swap-on-disk workflow needed to build either one.
+    if(TARGET_NAME STREQUAL "hw")
+        add_executable(${TARGET_NAME} main_classic.c)
+    else()
+        add_executable(${TARGET_NAME} main.c)
+    endif()
     target_link_libraries(${TARGET_NAME} PRIVATE common m gcc c)
     target_link_options(${TARGET_NAME} PRIVATE -Wl,-Map=${TARGET_NAME}.map)
     set_target_properties(${TARGET_NAME} PROPERTIES
