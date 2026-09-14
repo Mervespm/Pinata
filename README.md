@@ -81,12 +81,16 @@ in the manual).
 |                    |     44 | -        | -  |
 |                    |     65 | SIG, VER | -  |
 |                    |     87 | -        | -  |
+| FN-DSA FIPS 206    |        |          | -  |
+|                    |    512 | SIG, VER | -  |
 | MKL-KEM FIPS 203   |        |          |    |
 |                    |    512 | ENC, DEC | -  |
 |                    |    768 | -        | -  |
 |                    |   1024 | -        | -  |
 
-Note: ML-DSA and ML-KEM are implemented in terms of the [PQM4 library for Cortex-M4 processors](https://github.com/mupq/pqm4.git). The exact git commit hash that is used can be found in the src/CMakeLists.txt file. The library is downloaded into the $BUILD/\_deps/pqm4-src folder.
+Note: ML-DSA, ML-KEM, and FN-DSA (Falcon) are implemented in terms of the [PQM4 library for Cortex-M4 processors](https://github.com/mupq/pqm4.git). The exact git commit hash that is used can be found in the src/CMakeLists.txt file. The library is downloaded into the $BUILD/\_deps/pqm4-src folder.
+
+Note: For SCA, Falcon signing (`CMD_SW_FALCON_SIGN`) raises the GPIO trigger (PC2) around the decode of the secret key polynomial `f`, so the oscilloscope captures exactly that operation.
 
 ### Hash functions
 
@@ -140,7 +144,7 @@ This will compile all Pinata variations, which are currently "classic", "hw", an
 
 * The "classic" variant contains non-pqc software ciphers.
 * The "hw" variant contains non-pqc software ciphers, as well as _hardware-accelerated_ ciphers.
-* The "pqc" variant contains ML-DSA FIPS 204 and ML-KEM FIPS 203 software implementations.
+* The "pqc" variant contains ML-DSA FIPS 204, ML-KEM FIPS 203, and FN-DSA FIPS 206 (Falcon) software implementations.
 
 Example of compiling a particular firmware:
 

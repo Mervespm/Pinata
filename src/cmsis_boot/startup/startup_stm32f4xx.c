@@ -24,7 +24,9 @@
 // Note that this stacksize was increased from 0x4000 to 0x6b00 due to the
 // massive stack usage of the crypto_sign_signature function in src/dilithium/sign.c
 // It was further increased to 0x6b00 due to the stack usage of kyber512.
-#define STACK_SIZE       0x00006b00      /*!< The Stack size suggest using even number    */
+// Increased 0x6b00 -> 0x7400 because Falcon-512 signing's large stack buffer
+// overflowed the old budget and silently corrupted globals (no fault).
+#define STACK_SIZE       0x00007400      /*!< The Stack size suggest using even number    */
 __attribute__ ((section(".co_stack")))
 unsigned long pulStack[STACK_SIZE];
 
