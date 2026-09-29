@@ -1,0 +1,10 @@
+{
+  "constant": [
+    {
+      "label": "Sampling rate (MHz)",
+      "value": 1000
+    }
+  ],
+  "dynamic": [],
+  "trainable": []
+}

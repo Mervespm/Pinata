@@ -1,0 +1,14 @@
+{
+  "logn": 9,
+  "n_coeffs": 512,
+  "num_keys": 21000,
+  "record_size": 3202,
+  "forced_coeff_index": 0,
+  "forced_coeff_range": [-10, 10],
+  "fields": {
+    "pk":     { "offset": 0, "size": 897 },
+    "sk":     { "offset": 897, "size": 1281 },
+    "f":      { "offset": 2178, "size": 512, "dtype": "int8" },
+    "g":      { "offset": 2690, "size": 512, "dtype": "int8" }
+  }
+}

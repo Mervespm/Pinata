@@ -1,43 +1,4 @@
-"""Profiled (template) attack on Falcon's f[0] secret-key coefficient.
 
-This is NOT a CPA/DPA attack: f[0] is decoded straight out of the secret
-key with no public/known input varying under a fixed secret (the classic
-"fixed secret + known varying plaintext" structure CPA needs), and every
-profiling trace comes from an independent key. So instead:
-
-  1. POI-finding: correlate a known leakage model against power, using the
-     TRUE f[0] value from many independent profiling keys. The model is the
-     Hamming weight of the 32-bit two's-complement sign-extension of f[0] -
-     that's the actual register value trim_i8_decode() holds right before
-     truncating to int8 (Cortex-M4 registers are 32-bit), so it - not the
-     8-bit truncated value - is what should track switching-activity power.
-
-  2. Per-class Gaussian templates at those POIs, one per observed f[0]
-     value, built with a single shared ("pooled") covariance matrix rather
-     than a separate covariance per class. Falcon's Gaussian key sampling
-     means the tails (f[0] near +-14) have very few profiling traces even
-     at full scale - too few to estimate their own stable covariance -
-     while a pooled covariance estimated across all classes' residuals
-     stays well-conditioned.
-
-  3. Classification: score a trace against every class's template via the
-     multivariate Gaussian log-likelihood and take the argmax.
-
-Evaluated here via k-fold cross-validation on the profiling set itself (no
-separate held-out "attack" trace set exists yet) - this measures how well
-the profile explains held-out draws from the same profiling process, which
-is the right sanity check before ever pointing this at a genuinely unknown
-key.
-
-Usage:
-    python falcon_template_attack.py [PROFILE_DIR] [N_POIS] [N_FOLDS] [CLASSES]
-
-CLASSES is an optional comma-separated list of f[0] values to restrict the
-attack to, e.g. "0,7" - useful for isolating how separable a specific pair
-(or small group) of classes is, rather than always fighting the full
-18-way problem. Omit it to use every class with enough profiling traces,
-as before.
-"""
 import glob
 import os
 import sys
@@ -46,7 +7,7 @@ import numpy as np
 from scipy.stats import multivariate_normal
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_DIR = os.path.join(HERE, "falcon_captures", "f_only_profile_falcon_profile_keys")
+DEFAULT_DIR = os.path.join(HERE, "captures", "falcon_profile_keys")
 
 MIN_CLASS_COUNT = 5     # classes with fewer profiling traces than this are excluded
 N_POIS_DEFAULT = 5
@@ -54,15 +15,18 @@ POI_MIN_SPACING = 5      # samples - don't pick two POIs off the same correlatio
 N_FOLDS_DEFAULT = 5
 
 
-def hw32(f0):
-    """Hamming weight of the 32-bit two's-complement sign-extension of an
-    int8 f[0] value (Python's & on a negative int already gives the correct
-    two's-complement bit pattern)."""
-    return bin(int(f0) & 0xFFFFFFFF).count("1")
+def hw6(f0):
+    """Hamming weight of the raw 6-bit encoded value (before sign
+    extension) - f0 & 0x3F reconstructs the packed 6-bit code exactly as
+    it sits in the bit-stream, prior to the orrs/sign-extend step."""
+    return bin(int(f0) & 0x3F).count("1")
 
 
 def load_profile(profile_dir):
-    trace_files = sorted(glob.glob(os.path.join(profile_dir, "trace_*.npy")))
+    trace_files = sorted(
+        glob.glob(os.path.join(profile_dir, "trace_*.npy")),
+        key=lambda p: int(os.path.basename(p)[len("trace_"):-len(".npy")]),
+    )
     traces, f0s = [], []
     for tf in trace_files:
         idx = os.path.basename(tf)[len("trace_"):-len(".npy")]
@@ -75,7 +39,7 @@ def load_profile(profile_dir):
 
 
 def find_pois(traces, f0s, n_pois, min_spacing):
-    model = np.array([hw32(v) for v in f0s], dtype=np.float64)
+    model = np.array([hw6(v) for v in f0s], dtype=np.float64)
     model -= model.mean()
     X = traces - traces.mean(axis=0, keepdims=True)
     num = X.T @ model
@@ -152,8 +116,8 @@ def main():
         if excluded:
             print(f"Excluded (too few traces so far - will be included as capture grows): {excluded}")
 
-    print(f"HW32(f[0]) leakage-model value per class: "
-          f"{ {c: hw32(c) for c in classes} }")
+    print(f"HW6(f[0]) leakage-model value per class: "
+          f"{ {c: hw6(c) for c in classes} }")
 
     mask = np.isin(f0s, classes)
     traces_u, f0s_u = traces[mask], f0s[mask]

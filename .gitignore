@@ -10,3 +10,6 @@ inspector-scripts/captures/
 inspector-scripts/figures/
 inspector-scripts/sample_figures/
 BUILDING_ON_WINDOWS.md
+
+# SCA trace data (large binaries live in the Inspector data dir)
+*.mat

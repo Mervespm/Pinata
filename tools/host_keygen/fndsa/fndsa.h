@@ -124,6 +124,18 @@
 int fndsa_keygen(unsigned logn, void *sign_key, void *vrfy_key);
 
 /*
+ * Like fndsa_keygen(), except that f[index] (before F/G are solved for) is
+ * forced to value on every generation attempt, instead of being left to
+ * the Gaussian sampler. Unlike overwriting f[index] in an already-encoded
+ * key, F and G here are solved for AFTER the forced coefficient is
+ * applied, so the resulting key is a genuinely valid, signable NTRU key -
+ * not just one that satisfies the NTRU equation mod q with mismatched
+ * norms.
+ */
+int fndsa_keygen_force_coeff(unsigned logn, unsigned index, int value,
+	void *sign_key, void *vrfy_key);
+
+/*
  * This is similar to fndsa_keygen(), except that the provided 'tmp'
  * area is used for temporary buffers, with size tmp_len bytes, instead
  * of using the stack. This function is provided for the benefit of

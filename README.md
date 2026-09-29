@@ -90,7 +90,24 @@ in the manual).
 
 Note: ML-DSA, ML-KEM, and FN-DSA (Falcon) are implemented in terms of the [PQM4 library for Cortex-M4 processors](https://github.com/mupq/pqm4.git). The exact git commit hash that is used can be found in the src/CMakeLists.txt file. The library is downloaded into the $BUILD/\_deps/pqm4-src folder.
 
-Note: For SCA, Falcon signing (`CMD_SW_FALCON_SIGN`) raises the GPIO trigger (PC2) around the decode of the secret key polynomial `f`, so the oscilloscope captures exactly that operation.
+Note: For SCA, Falcon signing (`CMD_SW_FALCON_SIGN`) raises the GPIO trigger (PC2) high just before signing starts and low right after it ends, so the oscilloscope captures the whole signature generation.
+
+#### Falcon (FN-DSA-512) command usage
+
+The board is a signing/verification oracle: it does **not** generate keys. A Falcon-512 keypair is generated off-board (host side, see `tools/host_keygen`) and loaded onto the device. Each command is a single command byte followed by its payload; the board replies with a status byte (`0x00` = OK, `0x01` = error) plus any result.
+
+| Command | Byte | Host sends | Board replies |
+|---------|------|------------|---------------|
+| `CMD_SW_FALCON_SET_PUBLIC_AND_PRIVATE_KEY` | `0x9B` | `pk` (897 B) then `sk` (1281 B) | `0x00` |
+| `CMD_SW_FALCON_SIGN` | `0x9C` | message (16 B) | `0x00` + signature (666 B), or `0x01` |
+| `CMD_SW_FALCON_VERIFY` | `0x9D` | signature (666 B) + message (16 B) | `0x00` (valid) / `0x01` (invalid) |
+| `CMD_SW_FALCON_GET_KEY_SIZES` | `0x9E` | — | pk size then sk size (little-endian `uint16` each) |
+
+Key terms: `sk` is the **signing key** (the secret short polynomials `f, g, F`, packed); `pk` is the **verification key** (the public polynomial `h`). A typical session is: `SET_PUBLIC_AND_PRIVATE_KEY` once, then `SIGN` (and/or `VERIFY`) repeatedly.
+
+These are separate from the ML-DSA commands (`0x90`–`0x94`, `0x9A`), which use different byte values, key/signature sizes, and backend — the two schemes coexist in the full firmware because their command bytes never collide.
+
+Note: for reproducible SCA traces this build signs with a **fixed seed** (see `falcon/wrapper.c`), so repeated `SIGN` calls on the same key and message are byte-for-byte identical. This is deliberate for a side-channel test bench and must never be done in production.
 
 ### Hash functions
 

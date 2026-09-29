@@ -8,6 +8,18 @@
 //RSA, ECC, HW crypto engine, password-check glitching, ...) and the
 //ML-DSA/ML-KEM commands have been removed, leaving only Falcon key loading,
 //signing and verification plus the generic board infrastructure they need.
+//
+//Falcon (FN-DSA-512) command protocol
+//  SET_PUBLIC_AND_PRIVATE_KEY : host sends pk (897 B) then sk (1281 B); the
+//        board stores them and replies 0x00. The keypair is GENERATED OFF-BOARD
+//        (host-side keygen, tools/host_keygen) and loaded here - the board does
+//        not run key generation itself. sk = the signing key (the secret short
+//        polynomials f, g, F, packed); pk = the verification key (public h).
+//  SIGN : host sends a fixed-length message; the board signs it with the loaded
+//        sk and replies 0x00 followed by the signature, or 0x01 on failure.
+//        GPIO Pin 2 is the scope trigger, HIGH for exactly this sign() call.
+//  VERIFY : host sends signature+message; the board checks it with pk and
+//        replies 0x00 (valid) or 0x01 (invalid).
 
 #include "main.h"
 #include "io.h"
@@ -16,22 +28,10 @@
 #include "falcon/wrapper.h"
 #include "pqm4_hal/pinata_callbacks.h"
 
-// If a byte the host promised (e.g. the rest of a SET_KEY/SIGN payload)
-// never arrives - dropped on the wire - get_char_uart() used to spin
-// forever with no way to recover short of a physical reset. command_resync
-// is the point the main loop jumps back to when that timeout fires, so a
-// dropped byte becomes "that command failed" instead of a permanent hang.
+
 jmp_buf command_resync;
 
-// Belt-and-suspenders backstop for the same problem: the independent
-// hardware watchdog (IWDG) runs off its own internal ~32kHz clock,
-// completely separate from the main clock and USART - so it keeps
-// counting down and will reset the whole MCU even if get_char_uart()'s
-// software timeout above never fires for some reason (a hang somewhere
-// else, a bug in the longjmp path, etc.). It's kicked once per command
-// at the top of the main loop; if a command doesn't complete within the
-// timeout, the board resets itself with no host/physical intervention
-// needed at all.
+
 static void iwdg_init(void) {
 	IWDG->KR = 0x5555;   // unlock PR/RLR for writing
 	IWDG->PR = 6;        // /256 prescaler: ~32kHz LSI / 256 = ~8ms per tick
@@ -65,12 +65,6 @@ volatile uint8_t clockSource=0;
 #define END_INTERESTING_STUFF GPIOC->BSRRH = GPIO_Pin_2
 
 FalconState g_falcon;
-void handle_falcon_decode_start() {
-	BEGIN_INTERESTING_STUFF;
-}
-void handle_falcon_decode_finish() {
-	END_INTERESTING_STUFF;
-}
 
 ////////////////////////////////////////////////////
 //MAIN FUNCTION: entry point for the board program//
@@ -78,9 +72,6 @@ void handle_falcon_decode_finish() {
 int main(void) {
 	uint8_t cmd;
 	uint8_t tmp;
-
-	PINATA_PATCH_falcon_set_decode_start_callback(&handle_falcon_decode_start);
-	PINATA_PATCH_falcon_set_decode_finish_callback(&handle_falcon_decode_finish);
 
 	//Set up the system clocks
 	SystemInit();
@@ -141,11 +132,12 @@ int main(void) {
 				uint8_t* signedMessageBuffer = FalconState_getScratchPad(&g_falcon);
 				get_bytes(FALCON_MESSAGE_SIZE, signedMessageBuffer + FALCON_SIGNATURE_SIZE);
 
-				// Handle the request.
-				// Note: GPIO Pin 2 is toggled inside FalconState_sign(), high from
-				// the start of the secret-key f decode through the end of the full
-				// signing computation.
+				// Handle the request. GPIO Pin 2 (the scope trigger) is driven
+				// HIGH just before signing starts and LOW right after it ends,
+				// so the trigger brackets the whole signature generation.
+				BEGIN_INTERESTING_STUFF;
 				int result = FalconState_sign(&g_falcon, signedMessageBuffer, signedMessageBuffer + FALCON_SIGNATURE_SIZE);
+				END_INTERESTING_STUFF;
 
 				if (result == 0) {
 					// OK: The message is now signed, let's send the signature of the message back.

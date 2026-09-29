@@ -1,29 +1,11 @@
-"""PicoScope 3000a-series block-capture wrapper for the Pinata/Falcon SCA rig.
 
-Mirrors the shape of HMAC_SCA/SCA_scripts/pico_scope.py (arm() then read()),
-adapted from the newer ps6000a "unified" API to the older ps3000a legacy API
-that the 3000a-series driver actually uses (ps3000aOpenUnit/SetChannel/
-SetSimpleTrigger/RunBlock/GetValues/... instead of ps6000a's PicoDevice-style
-calls). Channel A = power (current probe), channel B = trigger (PC2).
-
-  from pico_scope_3000a import Scope
-  scope = Scope()
-  scope.arm(); ...; power, trig = scope.read(); scope.close()
-
-Close the PicoScope GUI / Riscure Inspector first - only one program can own
-the scope at a time.
-"""
 import ctypes
 import os
 from time import sleep
 
 import numpy as np
 
-# picosdk's ctypes loader resolves "ps3000a.dll" via the first match on PATH.
-# On this machine that resolves to a 32-bit copy bundled with PicoScope6
-# (Program Files (x86)), which fails to load into 64-bit Python with
-# "WinError 193: not a valid Win32 application". Force it to find the known
-# 64-bit copy (the same one Riscure Inspector uses successfully) first.
+
 _PICO_64BIT_DIR = r"C:\Program Files\Inspector-2026.4-sca-fi\lib\Win64"
 if os.path.isdir(_PICO_64BIT_DIR):
     os.environ["PATH"] = _PICO_64BIT_DIR + os.pathsep + os.environ["PATH"]
@@ -34,22 +16,22 @@ from picosdk.functions import assert_pico_ok, mV2adc  # noqa: E402
 # =============================== SETTINGS =============================== #
 # channel A = power (current probe)
 A_COUPLING = "DC"
-A_RANGE_V  = 1
+A_RANGE_V  = 0.2
 A_PROBE    = 1
 # channel B = trigger (Pinata PC2, straight logic-level connection assumed)
 B_COUPLING = "DC"
-B_RANGE_V  = 5.0
-B_THRESH_V = 1.0
+B_RANGE_V  = 5
+B_THRESH_V = 0.5
 B_PROBE    = 1
 
-WINDOW_MS       = 320   # must comfortably cover the whole widened-trigger pulse
-PRE_TRIG_FRAC   = 0.05  # small baseline captured before the B rising edge
-TARGET_SAMPLES  = 200_000  # ceiling used to pick a timebase for WINDOW_MS
-CAPTURE_TIMEOUT_S = 5.0
+WINDOW_MS       =0.3# must comfortably cover the whole widened-trigger pulse
+PRE_TRIG_FRAC   = 0 # small baseline captured before the B rising edge
+TARGET_SAMPLES  = 1_000_000  # ceiling used to pick a timebase for WINDOW_MS
+CAPTURE_TIMEOUT_S = 2
 # "B" = trigger on channel B (digitized, returned as trig_B by read()).
 # "EXTERNAL" = trigger on the dedicated EXT input - doesn't consume the 2nd
 # ADC, so this scope hits a faster single-channel rate; no trig array back.
-TRIGGER_SOURCE  = "EXTERNAL" 
+TRIGGER_SOURCE  = "EXTERNAL"
 
 RANGE_INDEX = {0.01: 0, 0.02: 1, 0.05: 2, 0.1: 3, 0.2: 4, 0.5: 5,
                1.0: 6, 2.0: 7, 5.0: 8, 10.0: 9, 20.0: 10, 50.0: 11}
@@ -59,13 +41,25 @@ class Scope:
     """ps3000a block-capture wrapper: arm() then read() one trace."""
 
     def __init__(self, window_ms=WINDOW_MS, pre_trig_frac=PRE_TRIG_FRAC,
-                 trigger_source=TRIGGER_SOURCE, verbose=True):
+                 trigger_source=TRIGGER_SOURCE, capture_b=False, b_range_v=5.0,
+                 verbose=True):
+        # capture_b: with EXTERNAL trigger, also digitize channel B as a DATA
+        # channel (e.g. the PC1 phase marker) so read() returns it. Enabling the
+        # 2nd ADC lowers the max single-channel rate, which is fine for a full-
+        # sign overview capture.
         self.trigger_source = trigger_source
+        self.capture_b = capture_b
         self.handle = ctypes.c_int16()
         assert_pico_ok(ps.ps3000aOpenUnit(ctypes.byref(self.handle), None))
 
         self.maxadc = ctypes.c_int16()
         assert_pico_ok(ps.ps3000aMaximumValue(self.handle, ctypes.byref(self.maxadc)))
+
+        # Reset to a SINGLE memory segment so the FULL capture memory is available.
+        # If the scope was left segmented (by Inspector or a prior run), a block
+        # capture is capped to a few thousand samples. nmax = samples/segment now.
+        self._nmax = ctypes.c_int32(0)
+        assert_pico_ok(ps.ps3000aMemorySegments(self.handle, 1, ctypes.byref(self._nmax)))
 
         self.chA = ps.PS3000A_CHANNEL["PS3000A_CHANNEL_A"]
         self.chB = ps.PS3000A_CHANNEL["PS3000A_CHANNEL_B"]
@@ -87,10 +81,13 @@ class Scope:
             thr = mV2adc(B_THRESH_V / B_PROBE * 1000.0, RANGE_INDEX[B_RANGE_V], self.maxadc)
             assert_pico_ok(ps.ps3000aSetSimpleTrigger(self.handle, 1, self.chB, thr, rising, 0, 0))
         elif trigger_source == "EXTERNAL":
-            # B not needed as a digitized channel - disabling it frees the
-            # 2nd ADC, unlocking a faster single-channel rate.
-            assert_pico_ok(ps.ps3000aSetChannel(self.handle, self.chB, 0,
-                           ps.PS3000A_COUPLING["PS3000A_DC"], RANGE_INDEX[1.0], 0.0))
+            # B is normally disabled to free the 2nd ADC (faster single-channel
+            # rate). With capture_b=True we instead digitize B as a marker
+            # channel (e.g. PC1 phase pulses), still triggering on EXT.
+            b_enabled = 1 if capture_b else 0
+            b_range = RANGE_INDEX[b_range_v] if capture_b else RANGE_INDEX[1.0]
+            assert_pico_ok(ps.ps3000aSetChannel(self.handle, self.chB, b_enabled,
+                           ps.PS3000A_COUPLING["PS3000A_DC"], b_range, 0.0))
             # EXTERNAL threshold is expressed against a fixed +/-5V front end
             # (see HMAC_SCA/SCA_scripts/picoscopeMethods.py's setTrigger),
             # not the analog channel range settings.
@@ -112,7 +109,8 @@ class Scope:
                                             ctypes.byref(max_samples), 0)
             if status == 0:
                 n = int(window_s / (interval_ns.value * 1e-9))
-                if n <= TARGET_SAMPLES:
+                # cap by BOTH the requested ceiling and the scope's real memory
+                if n <= min(TARGET_SAMPLES, max_samples.value):
                     break
             timebase += 1
             if timebase > 200000:
@@ -131,7 +129,7 @@ class Scope:
         self.bufA = (ctypes.c_int16 * self.n_samples)()
         assert_pico_ok(ps.ps3000aSetDataBuffer(self.handle, self.chA,
                        ctypes.byref(self.bufA), self.n_samples, 0, self.none_mode))
-        if trigger_source == "B":
+        if trigger_source == "B" or self.capture_b:
             self.bufB = (ctypes.c_int16 * self.n_samples)()
             assert_pico_ok(ps.ps3000aSetDataBuffer(self.handle, self.chB,
                            ctypes.byref(self.bufB), self.n_samples, 0, self.none_mode))

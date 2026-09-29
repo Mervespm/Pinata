@@ -287,35 +287,31 @@ add_custom_target(apply-mldsa-sign-patch
 
 add_dependencies(pqc apply-mldsa-sign-patch)
 
-# For the tight triggering around the Falcon (FN-DSA) secret-key decode, we
-# need to modify sign.c the same way. sign.c lives in the nested mupq
-# submodule (fndsa_provisional-512/m4f/sign.c is a symlink into
-# mupq/crypto_sign/fndsa_provisional-512/ref/sign.c), so the patch is applied
-# with mupq as the working directory instead of pqm4_SOURCE_DIR itself.
+# Falcon (FN-DSA) uses the upstream fndsa sources unmodified - the scope trigger
+# is driven from main.c around the sign() call, so no source patch is needed.
+# Revert the nested mupq tree to pristine in case an earlier build patched it
+# (fndsa_provisional-512/m4f/sign.c is a symlink into mupq's ref/sign.c).
 add_custom_command(
     OUTPUT
-        "${CMAKE_CURRENT_BINARY_DIR}/fndsa-sign.patch.applied"
+        "${CMAKE_CURRENT_BINARY_DIR}/fndsa-pristine.applied"
     COMMAND
         "${GIT_EXECUTABLE}" checkout .
     COMMAND
-        "${GIT_EXECUTABLE}" apply "${CMAKE_CURRENT_SOURCE_DIR}/../patches/fndsa-sign.patch"
-    COMMAND
-        "${CMAKE_COMMAND}" -E touch "${CMAKE_CURRENT_BINARY_DIR}/fndsa-sign.patch.applied"
+        "${CMAKE_COMMAND}" -E touch "${CMAKE_CURRENT_BINARY_DIR}/fndsa-pristine.applied"
     WORKING_DIRECTORY
         "${pqm4_SOURCE_DIR}/mupq"
     DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/../patches/fndsa-sign.patch"
         "${GIT_EXECUTABLE}"
     COMMENT
-        "Applying patch ${CMAKE_CURRENT_SOURCE_DIR}/../patches/fndsa-sign.patch"
+        "Ensuring Falcon (fndsa) sources are pristine"
 )
 
-add_custom_target(apply-fndsa-sign-patch
+add_custom_target(ensure-fndsa-pristine
     DEPENDS
-        "${CMAKE_CURRENT_BINARY_DIR}/fndsa-sign.patch.applied"
+        "${CMAKE_CURRENT_BINARY_DIR}/fndsa-pristine.applied"
 )
 
-add_dependencies(pqc apply-fndsa-sign-patch)
+add_dependencies(pqc ensure-fndsa-pristine)
 
 # After having collected all license information into lists, we now generate
 # the notice file.

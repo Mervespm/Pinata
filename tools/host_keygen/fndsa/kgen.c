@@ -4,6 +4,14 @@
 
 #include "kgen_inner.h"
 
+/* When g_force_active is set, f[g_force_index] is overwritten with
+   g_force_value right after each sampling attempt, before the
+   norm/invertibility checks and the NTRU solve - so F/G end up solved for
+   the actually-used f. Not thread-safe; host_keygen is single-threaded. */
+static int g_force_active = 0;
+static int g_force_index = 0;
+static int g_force_value = 0;
+
 static void
 keygen_inner(unsigned logn, const void *seed, size_t seed_len,
 	void *sign_key, void *vrfy_key, void *tmp)
@@ -31,6 +39,9 @@ keygen_inner(unsigned logn, const void *seed, size_t seed_len,
 		/* Sample f and g, both with odd parity. */
 		sample_f(logn, &pc, f);
 		sample_f(logn, &pc, g);
+		if (g_force_active) {
+			f[g_force_index] = (int8_t)g_force_value;
+		}
 
 		/* Ensure that ||(g, -f)|| < 1.17*sqrt(q),
 		   i.e. that ||(g, -f)||^2 < (1.17^2)*q = 16822.4121  */
@@ -124,6 +135,9 @@ avx2_keygen_inner(unsigned logn, const void *seed, size_t seed_len,
 		/* Sample f and g, both with odd parity. */
 		sample_f(logn, &pc, f);
 		sample_f(logn, &pc, g);
+		if (g_force_active) {
+			f[g_force_index] = (int8_t)g_force_value;
+		}
 
 		/* Ensure that ||(g, -f)|| < 1.17*sqrt(q),
 		   i.e. that ||(g, -f)||^2 < (1.17^2)*q = 16822.4121  */
@@ -288,6 +302,18 @@ int
 fndsa_keygen(unsigned logn, void *sign_key, void *vrfk_key)
 {
 	return keygen(logn, NULL, 0, sign_key, vrfk_key, NULL, 0);
+}
+
+/* see fndsa.h */
+int
+fndsa_keygen_force_coeff(unsigned logn, unsigned index, int value, void *sign_key, void *vrfk_key)
+{
+	g_force_active = 1;
+	g_force_index = (int)index;
+	g_force_value = value;
+	int r = keygen(logn, NULL, 0, sign_key, vrfk_key, NULL, 0);
+	g_force_active = 0;
+	return r;
 }
 
 /* see fndsa.h */

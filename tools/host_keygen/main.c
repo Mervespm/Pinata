@@ -179,7 +179,124 @@ skip:
 	return written > 0 ? 0 : 1;
 }
 
+/*
+ * For each target value in [lo, hi], generate count_per_value records via
+ * fndsa_keygen_force_coeff(): a FRESH, independent, genuinely valid key
+ * each time (fresh g, F, other f coeffs), with f[coeff_index] forced to
+ * the target value BEFORE F/G are solved for - so, unlike build_variant_sk()
+ * (which patches a coefficient into an already-completed key, leaving F/G
+ * solved for the WRONG f and the key unable to sign), every key produced
+ * here is fully signable.
+ */
+static int run_force_coeff(unsigned coeff_index, int lo, int hi, long count_per_value, const char *prefix) {
+	if (coeff_index >= N_COEFFS) {
+		fprintf(stderr, "coeff_index must be in 0..%u\n", N_COEFFS - 1);
+		return 1;
+	}
+	if (lo < -31 || hi > 31 || lo > hi) {
+		fprintf(stderr, "target value range must be within -31..31 and lo <= hi\n");
+		return 1;
+	}
+
+	char bin_path[512], meta_path[512];
+	snprintf(bin_path, sizeof bin_path, "%s.bin", prefix);
+	snprintf(meta_path, sizeof meta_path, "%s.meta.json", prefix);
+	FILE *bin = fopen(bin_path, "wb");
+	if (!bin) {
+		fprintf(stderr, "failed to open %s for writing\n", bin_path);
+		return 1;
+	}
+
+	long target_total = (long)(hi - lo + 1) * count_per_value;
+	long written = 0;
+	for (int value = lo; value <= hi; value++) {
+		long got = 0;
+		long attempts = 0;
+		long max_attempts = count_per_value * 5 + 100;
+		while (got < count_per_value && attempts < max_attempts) {
+			attempts++;
+			uint8_t sk[SK_SIZE], pk[PK_SIZE];
+			if (!fndsa_keygen_force_coeff(LOGN, coeff_index, value, sk, pk)) {
+				fprintf(stderr, "\nvalue %d: fndsa_keygen_force_coeff() failed (OS RNG error), stopping this value\n", value);
+				break;
+			}
+			int8_t f[N_COEFFS], g[N_COEFFS];
+			if (!decode_fg(sk, f, g) || f[coeff_index] != (int8_t)value) {
+				fprintf(stderr, "\nvalue %d: unexpected decode/force mismatch (bug!), skipping\n", value);
+				continue;
+			}
+			if (fwrite(pk, 1, PK_SIZE, bin) != PK_SIZE ||
+			    fwrite(sk, 1, SK_SIZE, bin) != SK_SIZE ||
+			    fwrite(f, 1, N_COEFFS, bin) != N_COEFFS ||
+			    fwrite(g, 1, N_COEFFS, bin) != N_COEFFS) {
+				fprintf(stderr, "\nvalue %d: short write to %s\n", value, bin_path);
+				fclose(bin);
+				return 1;
+			}
+			written++;
+			got++;
+			if (written % 200 == 0 || written == target_total) {
+				fprintf(stderr, "generated %ld/%ld keys (value %d: %ld/%ld)\r", written, target_total, value, got, count_per_value);
+			}
+		}
+		if (got < count_per_value) {
+			fprintf(stderr, "\nvalue %d: only got %ld/%ld after %ld attempts\n", value, got, count_per_value, attempts);
+		}
+	}
+	fclose(bin);
+	fprintf(stderr, "\n");
+
+	size_t record_size = (size_t)PK_SIZE + SK_SIZE + N_COEFFS + N_COEFFS;
+	FILE *meta = fopen(meta_path, "w");
+	if (!meta) {
+		fprintf(stderr, "failed to open %s for writing\n", meta_path);
+		return 1;
+	}
+	fprintf(meta,
+		"{\n"
+		"  \"logn\": %u,\n"
+		"  \"n_coeffs\": %u,\n"
+		"  \"num_keys\": %ld,\n"
+		"  \"record_size\": %zu,\n"
+		"  \"forced_coeff_index\": %u,\n"
+		"  \"forced_coeff_range\": [%d, %d],\n"
+		"  \"fields\": {\n"
+		"    \"pk\":     { \"offset\": 0, \"size\": %u },\n"
+		"    \"sk\":     { \"offset\": %u, \"size\": %u },\n"
+		"    \"f\":      { \"offset\": %u, \"size\": %u, \"dtype\": \"int8\" },\n"
+		"    \"g\":      { \"offset\": %u, \"size\": %u, \"dtype\": \"int8\" }\n"
+		"  }\n"
+		"}\n",
+		LOGN, N_COEFFS, written, record_size, coeff_index, lo, hi,
+		(unsigned)PK_SIZE,
+		(unsigned)PK_SIZE, (unsigned)SK_SIZE,
+		(unsigned)(PK_SIZE + SK_SIZE), N_COEFFS,
+		(unsigned)(PK_SIZE + SK_SIZE + N_COEFFS), N_COEFFS);
+	fclose(meta);
+
+	fprintf(stderr, "wrote %ld forced-coeff keys (f[%u] in [%d,%d], target %ld each) to %s (%s)\n",
+		written, coeff_index, lo, hi, count_per_value, bin_path, meta_path);
+	return written > 0 ? 0 : 1;
+}
+
 int main(int argc, char **argv) {
+	if (argc >= 2 && strcmp(argv[1], "forcecoeff") == 0) {
+		if (argc < 6) {
+			fprintf(stderr,
+				"usage: %s forcecoeff <coeff_index> <lo> <hi> <count_per_value> [output_prefix=falcon_forcecoeff]\n"
+				"generates count_per_value fresh, independent keys for EACH f[coeff_index]\n"
+				"value in [lo,hi] (only that one coefficient forced; g/F/other f coeffs vary freely).\n",
+				argv[0]);
+			return 1;
+		}
+		unsigned coeff_index = (unsigned)strtoul(argv[2], NULL, 10);
+		int lo = atoi(argv[3]);
+		int hi = atoi(argv[4]);
+		long count_per_value = strtol(argv[5], NULL, 10);
+		const char *out_prefix = argc >= 7 ? argv[6] : "falcon_forcecoeff";
+		return run_force_coeff(coeff_index, lo, hi, count_per_value, out_prefix);
+	}
+
 	if (argc >= 2 && strcmp(argv[1], "sweep") == 0) {
 		if (argc < 3) {
 			fprintf(stderr,
