@@ -84,8 +84,9 @@ cells.append(code(
 cells.append(md(
     "## 2. Attack one coefficient",
     "",
-    "Take the victim's measurement of `f[0]`, score it against every template, and rank the",
-    "candidate values. The best score is the prediction; the gap to the runner-up is the confidence."))
+    "Each coefficient is measured a few times (here 45 traces) and **averaged** to cut the noise.",
+    "We then score that averaged trace against every template and rank the candidate values. The",
+    "best score is the prediction; the gap to the runner-up is the confidence."))
 cells.append(code(
     "random.seed(0)                        # fixed so the demo repeats identically",
     "",
