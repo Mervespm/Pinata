@@ -49,6 +49,18 @@ cells.append(code(
     "plt.xlabel('time (us)'); plt.ylabel('power'); plt.title('one signing trace'); plt.show()"))
 
 cells.append(md(
+    "## 1b. Where the key leaks",
+    "",
+    "Correlating the power with the secret coefficient marks the two leak points we template:",
+    "the **decode** (`|rho|~0.97`) and the **mod-q** step (`|rho|~0.38`)."))
+cells.append(code(
+    "corr = np.load('nb_corr_full.npz')['corr']",
+    "plt.figure(figsize=(11, 3)); plt.plot(np.arange(len(corr)) / 1000.0, corr, lw=.5, color='C3')",
+    "plt.annotate('decode  0.97', xy=(1.1, corr[1093]), xytext=(16, 0.80), arrowprops=dict(arrowstyle='->'))",
+    "plt.annotate('mod-q  0.38', xy=(92.7, corr[92676]), xytext=(115, 0.55), arrowprops=dict(arrowstyle='->'))",
+    "plt.xlabel('time (us)'); plt.ylabel('|correlation with secret|'); plt.title('two attack points'); plt.show()"))
+
+cells.append(md(
     "## 2. Attack one coefficient",
     "",
     "Take the victim's measurement of `f[0]`, score it against every template, and rank the",
