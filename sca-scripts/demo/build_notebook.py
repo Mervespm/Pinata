@@ -129,30 +129,38 @@ cells.append(code(
 
 # 4. read the key from one trace
 cells.append(md(
-    "## 4. Reading the secret key from ONE trace",
+    "## 4. Reading the secret key with the template",
     "",
-    "We now apply the combined two-point template to the target trace. Each coefficient gets a",
-    "**recovered value** and a **confidence**. Below are the recovered secret coefficients",
-    "`f[0] ... f[15]` - this is the actual key being read out of a single trace.",
+    "The template turns the power at the two attack points into a **value** for each coefficient,",
+    "together with a **confidence**. Every coefficient of the key is read this way.",
     "",
-    "*(Single trace, N = 1. The measured per-coefficient accuracy is 98.32%.)*"))
+    "Below are the first 16 coefficients of the Falcon-1024 key, `f[0]` to `f[15]`: the true",
+    "value, the value the template read, and how confident it was. The read values and",
+    "confidences are the **real measured template outputs** (single trace, N = 1). One trace",
+    "already reads almost all of them correctly - the measured accuracy is 98.32%."))
 cells.append(code(
     "rng = np.random.default_rng(1)",
-    "reads_f = [pool[int(v)][rng.integers(len(pool[int(v)]))] for v in f_true]  # (value, confidence)",
-    "reads_g = [pool[int(v)][rng.integers(len(pool[int(v)]))] for v in g_true]",
     "",
-    "rec_f = np.array([r[0] for r in reads_f])",
-    "print('recovered f[0:16] :', rec_f[:16].tolist())",
-    "print('true      f[0:16] :', f_true[:16].tolist())",
-    "print()",
-    "print(f\"{'coeff':>6} | {'true':>5} | {'recovered':>9} | {'confidence':>10} | ok\")",
-    "print('-' * 50)",
+    "def template_read(true_value):",
+    "    \"\"\"One real measured template output for a coefficient of this value.",
+    "    Returns (value the template read, confidence).\"\"\"",
+    "    measured = pool[int(true_value)]          # real reads whose true coefficient was this value",
+    "    return measured[rng.integers(len(measured))]",
+    "",
+    "reads_f = [template_read(v) for v in f_true]  # read every coefficient of f",
+    "reads_g = [template_read(v) for v in g_true]  # and of g",
+    "",
+    "print(f\"{'coeff':>6} | {'true':>5} | {'template read':>13} | {'confidence':>10} | correct\")",
+    "print('-' * 58)",
     "for i in range(16):",
-    "    pr, mg = reads_f[i]",
-    "    print(f'  f[{i:>2d}] | {f_true[i]:>+5d} | {pr:>+9d} | {mg:>10.2f} | ' + ('ok' if pr == f_true[i] else 'X'))",
+    "    read_value, confidence = reads_f[i]",
+    "    correct = 'yes' if read_value == f_true[i] else 'NO'",
+    "    print(f'  f[{i:>2d}] | {f_true[i]:>+5d} | {read_value:>+13d} | {confidence:>10.2f} | {correct}')",
     "",
-    "n_ok = int((rec_f == f_true).sum()) + int((np.array([r[0] for r in reads_g]) == g_true).sum())",
-    "print(f'\\nsingle trace: {n_ok}/{2*N} coefficients correct  ({100*n_ok/(2*N):.2f}%)')"))
+    "correct_f = sum(r[0] == v for r, v in zip(reads_f, f_true))",
+    "correct_g = sum(r[0] == v for r, v in zip(reads_g, g_true))",
+    "total = correct_f + correct_g",
+    "print(f'\\nthe template read {total} of {2*N} coefficients correctly  ({100*total/(2*N):.2f}%)')"))
 
 # 5. not yet the key
 cells.append(md(
