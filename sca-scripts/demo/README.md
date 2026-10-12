@@ -1,15 +1,16 @@
-# Falcon-1024 Secret-Key Decode Side-Channel Demo
+# Falcon-1024 Single-Trace Attack Demo
 
-A reproducible walkthrough of a profiled power side-channel attack on Falcon's
-secret-key decoding (`skDecode` / `trim_i8_decode`), followed by public-key
-completion to recover the full signing key.
+A lean, attacker's-eye walkthrough of a power side-channel attack on Falcon's
+secret-key decode, measured on an STM32F4. Templates are already trained; the
+notebook only runs the attack:
 
-The leakage, template, and per-coefficient accuracy are **measured** on an
-STM32F4 (Cortex-M4) target. The decode routine (`trim_i8_decode`) is
-byte-identical for Falcon-512 and Falcon-1024, so the measured accuracy projects
-directly; the only difference is the coefficient range (`[-15, 15]` for
-Falcon-1024). The full-key recovery runs on a genuine Falcon-1024 instance
-`(f, g, h)` with `h = g / f mod x^1024 + 1`.
+1. show one victim power trace,
+2. attack one coefficient — score it against every template, rank the candidate
+   values, predict with a confidence,
+3. repeat for a few coefficients,
+4. recover the full key: keep the most-confident reads, solve the public relation
+   `H*f = g (mod 12289)` for the rest, and check the result lies in Falcon's
+   coefficient bound `[-15, 15]`.
 
 ## Run
 
@@ -17,28 +18,18 @@ Falcon-1024). The full-key recovery runs on a genuine Falcon-1024 instance
 jupyter notebook falcon_demo.ipynb
 ```
 
-Run top to bottom. The notebook:
-
-1. locates the decode leak by correlation across one full signature,
-2. applies a trained template to read secret coefficients with a confidence,
-   printing the recovered secret key `f[0], f[1], ...` from a single trace,
-3. shows that averaging <= 25 traces drives per-coefficient accuracy from
-   98.32% (single trace) to 100%,
-4. ranks all 2048 coefficients by confidence, keeps the top 1030, and completes
-   the key through the public relation `H * f = g mod 12289`, verifying `H*f == g`
-   with public information only,
-5. recovers the full Falcon-1024 secret key with no lattice reduction.
-
-The notebook is rebuilt from `build_notebook.py`.
+The notebook reads real traces from a local Inspector capture
+(`split_TEST.trs`); that path is set at the top of the trace-loading cell. The
+notebook ships **pre-executed** (outputs included), so it can also be read
+without the raw traces. Rebuild with `python build_notebook.py`.
 
 ## Files
 
 | file | contents |
 |------|----------|
-| `falcon_demo.ipynb`   | the walkthrough (pre-executed; outputs included) |
-| `build_notebook.py`   | regenerates `falcon_demo.ipynb` |
-| `nb_corr_full.npz`    | correlation and an example trace over one signature |
-| `demo_leak_model.npz` | measured per-coefficient template predictions + confidence |
-| `nb_acc_vs_n.npy`     | measured accuracy vs. number of averaged traces |
-| `nb_falcon1024.npz`   | genuine Falcon-1024 instance `(f, g, h)` to recover |
-| `../template_attack/falcon_keymath.py` | public-key completion (h = g/f, fast GF(q) solve) |
+| `falcon_demo.ipynb` | the walkthrough (pre-executed) |
+| `build_notebook.py` | regenerates the notebook |
+| `nb_corr_full.npz` | an example victim trace |
+| `nb_falcon1024.npz` | the Falcon-1024 key `(f, g, h)` to recover |
+| `../template_attack/templates.npz` | the trained template (one model per value) |
+| `../template_attack/falcon_keymath.py` | public-key completion (`H*f = g`, fast GF(q) solve) |
