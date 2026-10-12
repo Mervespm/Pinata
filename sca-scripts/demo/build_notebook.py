@@ -57,21 +57,23 @@ cells.append(code(
 cells.append(md(
     "## 1. The target trace: one Falcon-1024 signing",
     "",
-    "This is a single power trace of the device signing. Signing first **decodes the secret",
-    "key** (the repeating pattern at the start - one repeat per coefficient), then runs the",
-    "Gaussian sampler. We attack the decode: the whole key passes through it, in the clear,",
-    "once per signature."))
+    "This is a single power trace of the device signing. The secret key passes through the",
+    "device in the clear at **two** places, both highlighted below:",
+    "",
+    "- **Attack Point 1 - decode** (orange, near the start): the key is unpacked coefficient by",
+    "  coefficient.",
+    "- **Attack Point 2 - mod-q** (red, later): each coefficient is converted for the mod-q",
+    "  arithmetic.",
+    "",
+    "Both carry the secret, and we use both."))
 cells.append(code(
     "t_us = np.arange(len(trace)) / 1000.0",
-    "fig, ax = plt.subplots(2, 1, figsize=(11, 5))",
-    "ax[0].plot(t_us, trace, lw=.3, color='C0')",
-    "ax[0].axvspan(0, 2.0, color='C1', alpha=.25)",
-    "ax[0].set_title('Full signing trace  (highlighted = secret-key decode)')",
-    "ax[0].set_xlabel('time (us)'); ax[0].set_ylabel('power (ADC)')",
-    "z = slice(0, 2000)",
-    "ax[1].plot(t_us[z], trace[z], lw=.6, color='C1')",
-    "ax[1].set_title('Zoom: the decode - each burst is one coefficient being unpacked')",
-    "ax[1].set_xlabel('time (us)'); ax[1].set_ylabel('power (ADC)')",
+    "plt.figure(figsize=(11, 3.6))",
+    "plt.plot(t_us, trace, lw=.3, color='C0')",
+    "plt.axvspan(0, 2.0, color='C1', alpha=.35, label='Attack Point 1: decode')",
+    "plt.axvspan(90.5, 94.5, color='C3', alpha=.35, label='Attack Point 2: mod-q')",
+    "plt.title('Full signing trace - both attack points highlighted')",
+    "plt.xlabel('time (us)'); plt.ylabel('power (ADC)'); plt.legend(loc='upper right')",
     "plt.tight_layout(); plt.show()"))
 
 # 2. two attack points
