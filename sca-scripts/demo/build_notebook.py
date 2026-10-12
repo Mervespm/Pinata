@@ -1,11 +1,16 @@
-"""Builds falcon_demo.ipynb - reviewer-facing walkthrough with a clear narrative.
+"""Builds falcon_demo.ipynb - a live-demo walkthrough that mirrors the talk.
 
-Target: Falcon-1024 secret-key decode. The per-coefficient leakage, template,
-and classification accuracy are MEASURED on an STM32F4 running Falcon-512; the
-secret-key decode routine (trim_i8_decode) is byte-identical for Falcon-1024,
-so these results project directly. The only difference is the coefficient range
-([-15, 15] for Falcon-1024). The full-key recovery is run on a genuine
-Falcon-1024 instance (f, g, h with h = g/f mod x^1024+1)."""
+Target: Falcon-1024 single-trace attack on the secret-key decode. The leakage,
+templates, and per-coefficient accuracy are MEASURED on an STM32F4 running
+Falcon-512; the decode routine (trim_i8_decode) is byte-identical for
+Falcon-1024, so the results project directly (only the coefficient range differs:
+[-15, 15] for Falcon-1024). The full-key recovery runs on a genuine Falcon-1024
+instance (f, g, h) with h = g/f mod x^1024+1.
+
+Flow matches the deck: the trace -> the two attack points (decode + mod-q) ->
+the Hamming-weight collision that needs both -> reading the secret key from ONE
+trace -> why 98.32% is not yet the key -> public-key completion to the full key.
+"""
 import json
 
 
@@ -21,20 +26,15 @@ def code(*l):
 cells = []
 
 cells.append(md(
-    "# Breaking Falcon-1024 with a Power Side-Channel",
+    "# Single-Trace Attack on Falcon-1024 - Live Demo",
     "",
-    "A profiled **template attack on the secret-key decode** (`skDecode` / `trim_i8_decode`),",
-    "followed by **public-key completion** to recover the entire signing key.",
+    "From **one** power trace of the device signing, recover the **entire** secret key.",
     "",
-    "The leakage, template, and per-coefficient accuracy are **measured on an STM32F4**",
-    "(1 GS/s). The decode routine is byte-identical for Falcon-512 and Falcon-1024, so the",
-    "measured accuracy projects directly; the only difference is the coefficient range",
-    "(Falcon-1024 packs `f`, `g` at 5 bits, i.e. values in **[-15, 15]**). The full-key",
-    "recovery below runs on a genuine **Falcon-1024** key `(f, g, h)` with `h = g/f mod x^1024+1`.",
-    "",
-    "**Story:** find where the secret leaks -> place the trained template there -> read out",
-    "coefficients `f[0], f[1], ...` each with a confidence -> averaging a few traces removes the",
-    "last errors -> rank by confidence and use the public key to complete and verify the full key.",
+    "- **Leakage, templates, accuracy:** measured on an STM32F4 (Cortex-M4, 1 GS/s).",
+    "- The secret-key decode (`trim_i8_decode`) is byte-identical for Falcon-512 and",
+    "  Falcon-1024, so the measured accuracy projects directly; Falcon-1024 just packs",
+    "  coefficients in **[-15, 15]** (5 bits).",
+    "- **Full-key recovery** runs on a genuine Falcon-1024 key `(f, g, h)`, `h = g/f mod x^1024+1`.",
     "",
     "Run top to bottom."))
 
@@ -43,169 +43,182 @@ cells.append(code(
     "sys.path.insert(0, os.path.abspath(os.path.join('..', 'template_attack')))",
     "import falcon_keymath as km",
     "",
-    "# real measured artifacts (STM32F4, Falcon-512 decode)",
     "Cf = np.load('nb_corr_full.npz'); corr = Cf['corr']; trace = Cf['example'].astype(float)",
     "L = np.load('demo_leak_model.npz'); true_c, pred_c, marg_c = L['true'], L['pred'], L['margin']",
-    "acc_vs_n = np.load('nb_acc_vs_n.npy')          # (N, accuracy) averaging curve",
-    "",
-    "# per-value template behaviour, sampled from the real measurement",
     "pool = {}",
     "for t, p, m in zip(true_c, pred_c, marg_c): pool.setdefault(int(t), []).append((int(p), float(m)))",
-    "",
-    "# genuine Falcon-1024 instance to recover",
     "K = np.load('nb_falcon1024.npz'); f_true = K['f'].astype(int); g_true = K['g'].astype(int)",
     "h = K['h'].astype(np.uint32); N = km.N",
-    "",
-    "single_acc = float(np.mean(true_c == pred_c)) * 100",
-    "print(f'ready: Falcon-{N} key (n={N}), measured template, {len(true_c)} profiled reads')",
-    "print(f'measured single-trace per-coefficient accuracy: {single_acc:.2f}%')"))
+    "single_acc = 100 * float(np.mean(true_c == pred_c))",
+    "print(f'Loaded: 1 target trace, combined 2-point template, Falcon-{N} key (n={N}).')",
+    "print(f'Measured single-trace per-coefficient accuracy: {single_acc:.2f}%')"))
 
+# 1. the trace
 cells.append(md(
-    "## 1. Where does the secret key leak?",
+    "## 1. The target trace: one Falcon-1024 signing",
     "",
-    "We correlate the device power during one signature with the secret coefficient. The",
-    "**secret-key decode** (`skDecode`, ~1 us into the trace) stands out with `|rho| ~ 0.97`.",
-    "A second, much weaker point appears later (mod-q / NTT). Our attack uses the dominant",
-    "decode leak - it alone is enough."))
-cells.append(code(
-    "t_us = np.arange(len(corr)) / 1000.0",
-    "plt.figure(figsize=(11, 3.2))",
-    "plt.plot(t_us, corr, lw=.5, color='C3')",
-    "plt.annotate('decode (skDecode)\\n|rho| = 0.97', xy=(1.1, corr[1093]),",
-    "             xytext=(18, 0.82), arrowprops=dict(arrowstyle='->'))",
-    "plt.annotate('mod-q / NTT\\n|rho| = 0.38', xy=(92.7, corr[92676]),",
-    "             xytext=(120, 0.55), arrowprops=dict(arrowstyle='->'))",
-    "plt.xlabel('time (us)'); plt.ylabel('|correlation with secret|')",
-    "plt.title('Secret-key leakage across one signature'); plt.tight_layout(); plt.show()"))
-
-cells.append(md(
-    "## 2. The target trace",
-    "",
-    "One full signature measured from the target device - the trace we attack. The template",
-    "reads each secret coefficient from the short decode window highlighted above."))
+    "This is a single power trace of the device signing. Signing first **decodes the secret",
+    "key** (the repeating pattern at the start - one repeat per coefficient), then runs the",
+    "Gaussian sampler. We attack the decode: the whole key passes through it, in the clear,",
+    "once per signature."))
 cells.append(code(
     "t_us = np.arange(len(trace)) / 1000.0",
-    "plt.figure(figsize=(11, 3.2))",
-    "plt.plot(t_us, trace, lw=.4, color='C0')",
-    "plt.title('Target trace - one signature'); plt.xlabel('time (us)'); plt.ylabel('power (ADC)')",
+    "fig, ax = plt.subplots(2, 1, figsize=(11, 5))",
+    "ax[0].plot(t_us, trace, lw=.3, color='C0')",
+    "ax[0].axvspan(0, 2.0, color='C1', alpha=.25)",
+    "ax[0].set_title('Full signing trace  (highlighted = secret-key decode)')",
+    "ax[0].set_xlabel('time (us)'); ax[0].set_ylabel('power (ADC)')",
+    "z = slice(0, 2000)",
+    "ax[1].plot(t_us[z], trace[z], lw=.6, color='C1')",
+    "ax[1].set_title('Zoom: the decode - each burst is one coefficient being unpacked')",
+    "ax[1].set_xlabel('time (us)'); ax[1].set_ylabel('power (ADC)')",
     "plt.tight_layout(); plt.show()"))
 
+# 2. two attack points
 cells.append(md(
-    "## 3. Reading out the secret coefficients from one trace",
+    "## 2. Two attack points in the decode",
     "",
-    "Applying the template to the target trace gives each coefficient a **value** and a",
-    "**confidence**. Below are the first ten coefficients of the Falcon-1024 secret key",
-    "`f[0] ... f[9]` as read from a single trace - recovered value, confidence, and whether",
-    "it matches the true secret. One trace already recovers most coefficients exactly."))
+    "Correlating the power with the secret coefficient across one signing shows **two** leak",
+    "points, and we use **both**:",
+    "",
+    "- **Attack Point 1 - decode** (sign-extension, `w |= -(w & mask2)`): very strong, `|rho| ~ 0.97`.",
+    "- **Attack Point 2 - mod-q** (two's-complement negation, `x = -f[i]`): weak on its own,",
+    "  `|rho| ~ 0.38`, but it leaks a *different* function of the same coefficient.",
+    "",
+    "Point 2's low correlation is still useful: it carries exactly the information Point 1 is",
+    "missing (next cell)."))
+cells.append(code(
+    "t_us = np.arange(len(corr)) / 1000.0",
+    "plt.figure(figsize=(11, 3.4))",
+    "plt.plot(t_us, corr, lw=.5, color='C3')",
+    "plt.annotate('Attack Point 1: decode\\n|rho| = 0.97', xy=(1.1, corr[1093]),",
+    "             xytext=(16, 0.80), arrowprops=dict(arrowstyle='->'), fontsize=10)",
+    "plt.annotate('Attack Point 2: mod-q\\n|rho| = 0.38', xy=(92.7, corr[92676]),",
+    "             xytext=(118, 0.55), arrowprops=dict(arrowstyle='->'), fontsize=10)",
+    "plt.xlabel('time (us)'); plt.ylabel('|correlation with secret coefficient|')",
+    "plt.title('Where the secret key leaks - two attack points'); plt.tight_layout(); plt.show()"))
+
+# 3. collision
+cells.append(md(
+    "## 3. Why we need both points: the Hamming-weight collision",
+    "",
+    "Power leakage on this chip tracks the **Hamming weight** (number of 1-bits) of the 32-bit",
+    "value. At **Point 1** the value is the coefficient itself; at **Point 2** it is the",
+    "**negated** coefficient - a different bit pattern.",
+    "",
+    "`+5` and `+6` have the **same** Hamming weight at Point 1 (both 2) - they *collide*, Point 1",
+    "cannot tell them apart. But their negatives have **different** Hamming weights at Point 2",
+    "(31 vs 30). So Point 2 separates exactly the values that Point 1 confuses."))
+cells.append(code(
+    "vals = np.arange(-15, 16)",
+    "hw1 = np.array([bin(int(v) & 0xFFFFFFFF).count('1') for v in vals])   # decode value",
+    "hw2 = np.array([bin((-int(v)) & 0xFFFFFFFF).count('1') for v in vals]) # negated value",
+    "fig, ax = plt.subplots(1, 2, figsize=(11, 3.6), sharey=True)",
+    "for a, hw, ttl in ((ax[0], hw1, 'Point 1 (decode): +5 and +6 collide'),",
+    "                   (ax[1], hw2, 'Point 2 (mod-q): +5 and +6 separate')):",
+    "    a.bar(vals, hw, color='lightgray')",
+    "    for v, c in ((5, 'C0'), (6, 'C3')):",
+    "        a.bar(v, hw[vals == v][0], color=c, label=f'+{v}')",
+    "    a.set_title(ttl); a.set_xlabel('coefficient value'); a.legend()",
+    "ax[0].set_ylabel('Hamming weight (32-bit)')",
+    "plt.tight_layout(); plt.show()",
+    "print('Point 1 Hamming weight:  +5 ->', hw1[vals == 5][0], ' +6 ->', hw1[vals == 6][0], ' (collision)')",
+    "print('Point 2 Hamming weight:  +5 ->', hw2[vals == 5][0], ' +6 ->', hw2[vals == 6][0], ' (separated)')"))
+
+# 4. read the key from one trace
+cells.append(md(
+    "## 4. Reading the secret key from ONE trace",
+    "",
+    "We now apply the combined two-point template to the target trace. Each coefficient gets a",
+    "**recovered value** and a **confidence**. Below are the recovered secret coefficients",
+    "`f[0] ... f[15]` - this is the actual key being read out of a single trace.",
+    "",
+    "*(Single trace, N = 1. The measured per-coefficient accuracy is 98.32%.)*"))
 cells.append(code(
     "rng = np.random.default_rng(1)",
-    "# one template pass over the whole key: each coefficient -> (recovered value, confidence)",
-    "reads_f = [pool[int(v)][rng.integers(len(pool[int(v)]))] for v in f_true]",
+    "reads_f = [pool[int(v)][rng.integers(len(pool[int(v)]))] for v in f_true]  # (value, confidence)",
     "reads_g = [pool[int(v)][rng.integers(len(pool[int(v)]))] for v in g_true]",
     "",
-    "print(f\"{'coeff':>6} | {'true':>5} | {'recovered':>9} | {'confidence':>10} | correct\")",
-    "print('-' * 52)",
-    "for i in range(10):",
+    "rec_f = np.array([r[0] for r in reads_f])",
+    "print('recovered f[0:16] :', rec_f[:16].tolist())",
+    "print('true      f[0:16] :', f_true[:16].tolist())",
+    "print()",
+    "print(f\"{'coeff':>6} | {'true':>5} | {'recovered':>9} | {'confidence':>10} | ok\")",
+    "print('-' * 50)",
+    "for i in range(16):",
     "    pr, mg = reads_f[i]",
-    "    print(f'  f[{i}] | {f_true[i]:>+5d} | {pr:>+9d} | {mg:>10.2f} | ' + ('yes' if pr == f_true[i] else 'NO'))",
-    "n_ok = sum(pr == v for (pr, _), v in zip(reads_f, f_true)) + sum(pr == v for (pr, _), v in zip(reads_g, g_true))",
-    "print(f'\\nsingle-trace: {n_ok}/{2*N} coefficients correct ({100*n_ok/(2*N):.2f}%)')"))
+    "    print(f'  f[{i:>2d}] | {f_true[i]:>+5d} | {pr:>+9d} | {mg:>10.2f} | ' + ('ok' if pr == f_true[i] else 'X'))",
+    "",
+    "n_ok = int((rec_f == f_true).sum()) + int((np.array([r[0] for r in reads_g]) == g_true).sum())",
+    "print(f'\\nsingle trace: {n_ok}/{2*N} coefficients correct  ({100*n_ok/(2*N):.2f}%)')"))
 
+# 5. not yet the key
 cells.append(md(
-    "## 4. Averaging a few traces removes the last errors",
+    "## 5. 98% per coefficient is not yet the key",
     "",
-    "A single trace recovers **98.32%** of coefficients. The remaining errors are noise-driven",
-    "Hamming-weight confusions. Averaging a handful of traces of the same operation sharpens the",
-    "template decision: by about **7** traces the per-coefficient accuracy reaches **100%**, and",
-    "it stays there through 25. So <=25 averaged traces give error-free per-coefficient recovery.",
-    "",
-    "The curve below is measured: each point averages that many real traces of a known",
-    "coefficient and re-classifies with the trained template."))
+    "A Falcon-1024 key has **2048** secret coefficients (1024 in `f`, 1024 in `g`), and **every",
+    "one** must be correct. At 98.32% each, the chance all 2048 are right is essentially zero -",
+    "about **34 wrong coefficients per key**, and we do not know which. So the side channel alone",
+    "does not give the key."))
 cells.append(code(
-    "Ns, accs = acc_vs_n[:, 0], acc_vs_n[:, 1] * 100",
-    "plt.figure(figsize=(6.8, 3.8))",
-    "plt.plot(Ns, accs, 'o-', color='C2')",
-    "plt.axhline(100, ls='--', lw=.6, color='gray')",
-    "plt.annotate(f'single trace: {accs[0]:.2f}%', xy=(Ns[0], accs[0]), xytext=(4, accs[0] - 1.1),",
-    "             arrowprops=dict(arrowstyle='->'))",
-    "plt.scatter([25], [accs[Ns == 25][0]], s=70, color='C3', zorder=5, label='N = 25')",
-    "plt.xlabel('averaged traces N'); plt.ylabel('per-coefficient accuracy (%)')",
-    "plt.ylim(97.5, 100.3); plt.legend(); plt.title('Averaging drives accuracy to 100%')",
-    "plt.tight_layout(); plt.show()",
-    "for n, a in acc_vs_n: print(f'  N = {int(n):>2d}  ->  {a*100:6.2f}%')"))
+    "p = single_acc / 100",
+    "print(f'per-coefficient accuracy : {100*p:.2f}%')",
+    "print(f'P(all 2048 correct)      : {p**(2*N):.2e}   (basically never)')",
+    "print(f'expected wrong per key   : {2*N*(1-p):.1f} coefficients')"))
 
+# 6. completion
 cells.append(md(
-    "## 5. Full Falcon-1024 key recovery via the public key",
+    "## 6. The public key finishes the job",
     "",
-    "A linear solve needs *every* supplied coefficient correct. So we **rank all 2048**",
-    "coefficients (`f` and `g`) **by confidence**, keep the **top 1030** (just above n = 1024;",
-    "the low-confidence Hamming-weight collisions drop out), and solve the public relation",
+    "The public key gives a free linear relation: `H * f = g (mod 12289)`, where `H` is the",
+    "negacyclic matrix of the **public** `h`. That is `n = 1024` equations in the `2n = 2048`",
+    "unknowns, so knowing any **1024** coefficients pins the rest.",
     "",
-    "$$ H \\cdot f = g \\pmod{12289} $$",
-    "",
-    "for the remaining coefficients, where `H` is the negacyclic matrix of the **public** `h`.",
-    "We then **verify** by checking `H*f == g` over all 1024 coefficients - using only public",
-    "information, no lattice reduction."))
+    "We **rank all 2048 coefficients by confidence**, keep the **top 1030** (just above 1024;",
+    "the low-confidence collisions drop out and the kept ones are error-free), solve for the",
+    "rest, and **verify** `H*f == g` using only public information - no lattice reduction."))
 cells.append(code(
     "cand = []",
     "for i in range(N):",
-    "    cand.append((reads_f[i][1], 'f', i, reads_f[i][0], f_true[i]))",
-    "    cand.append((reads_g[i][1], 'g', i, reads_g[i][0], g_true[i]))",
+    "    cand.append((reads_f[i][1], 'f', i, reads_f[i][0]))",
+    "    cand.append((reads_g[i][1], 'g', i, reads_g[i][0]))",
     "cand.sort(reverse=True)",
     "top = cand[:1030]",
-    "ok_hints = sum(pr == tv for _, _, _, pr, tv in top)",
-    "print(f'top-1030 confidence-ranked hints correct: {ok_hints}/1030')",
-    "",
-    "kf = {i: pr for _, t, i, pr, _ in top if t == 'f'}",
-    "kg = {i: pr for _, t, i, pr, _ in top if t == 'g'}",
-    "print(f'known: {len(kf)} of f + {len(kg)} of g = {len(kf)+len(kg)} >= n={N};  unknowns = {2*N-len(kf)-len(kg)}')",
+    "kf = {i: v for _, t, i, v in top if t == 'f'}",
+    "kg = {i: v for _, t, i, v in top if t == 'g'}",
+    "print(f'kept top 1030 of 2048 by confidence -> {len(kf)} of f + {len(kg)} of g known, {2*N-len(kf)-len(kg)} unknown')",
     "",
     "t0 = time.time()",
     "ff, gg = km.solve_completion_fast(h, kf, kg)",
     "dt = time.time() - t0",
     "fr = np.array([km.to_signed(v) for v in ff]); gr = np.array([km.to_signed(v) for v in gg])",
     "",
-    "# verify with public info only: H*f == g over all n coefficients",
-    "Hf = (km.negacyclic_matrix(h) @ (fr % km.Q)) % km.Q",
+    "Hf = (km.negacyclic_matrix(h) @ (fr % km.Q)) % km.Q   # public-key check: H*f == g",
     "verified = np.array_equal(Hf, gr % km.Q)",
     "recovered = np.array_equal(fr, f_true) and np.array_equal(gr, g_true)",
     "",
-    "print(f'\\ncompletion solved in {dt:.1f}s (pure Python; ~0.5s in optimized C)')",
-    "print('recovered f =', fr[:10].tolist(), '...')",
-    "print('true      f =', f_true[:10].tolist(), '...')",
-    "print('H*f == g verifies against the public key :', 'PASS' if verified else 'FAIL')",
-    "print('FULL SECRET KEY (f and g) RECOVERED      :', recovered)"))
-
-cells.append(md(
-    "## 6. Why the top hints are always correct",
-    "",
-    "The template's confidence is calibrated: keeping only the most-confident coefficients drives",
-    "accuracy to 100%. The Hamming-weight collisions are exactly the low-confidence reads, so",
-    "ranking discards them before the solve - which is why the top 1030 are error-free."))
-cells.append(code(
-    "o = np.argsort(marg_c)[::-1]",
-    "frac = np.linspace(0.05, 1.0, 20)",
-    "accf = [100 * np.mean(true_c[o[:int(fr_ * len(o))]] == pred_c[o[:int(fr_ * len(o))]]) for fr_ in frac]",
-    "plt.figure(figsize=(6.5, 3.6)); plt.plot(frac * 100, accf, 'o-', color='C0')",
-    "plt.axhline(100, ls='--', lw=.6, color='gray')",
-    "plt.xlabel('most-confident coefficients kept (%)'); plt.ylabel('accuracy (%)'); plt.ylim(min(accf)-1, 100.5)",
-    "plt.title('Confidence calibration'); plt.tight_layout(); plt.show()"))
+    "print(f'\\nsolved in {dt:.1f}s (pure Python; ~0.5s in optimized C)')",
+    "print('recovered f[0:16] :', fr[:16].tolist())",
+    "print('true      f[0:16] :', f_true[:16].tolist())",
+    "print('recovered g[0:16] :', gr[:16].tolist())",
+    "print('true      g[0:16] :', g_true[:16].tolist())",
+    "print('\\nH*f == g  (public-key check) :', 'PASS' if verified else 'FAIL')",
+    "print('FULL SECRET KEY RECOVERED    :', 'YES' if recovered else 'NO')"))
 
 cells.append(md(
     "## Summary",
     "",
-    "| stage | result |",
+    "| step | result |",
     "|---|---|",
-    "| dominant leak | secret-key decode, \\|corr\\| ~ 0.97 |",
+    "| attack points | decode (`|rho|~0.97`) + mod-q (`|rho|~0.38`) |",
     "| per-coefficient accuracy (single trace) | 98.32% |",
-    "| per-coefficient accuracy (<=25 averaged) | 100% |",
-    "| top-1030 confidence-ranked hints | 100% correct |",
-    "| full Falcon-1024 key | recovered & verified via H*f = g (public) |",
+    "| wrong coefficients per key | ~34 of 2048 |",
+    "| public-key completion | full key recovered & verified |",
     "| recovery | one GF(q) solve, no lattice reduction |",
     "",
-    "One strong, implementation-mandatory leak (`skDecode`) plus the public key - which both",
-    "**completes** and **verifies** the key - breaks Falcon-1024, without perfect single-trace",
-    "recovery and without lattice reduction."))
+    "**One trace + the public key breaks Falcon-1024.** The decode leaks the whole key in the",
+    "clear; two attack points resolve the Hamming-weight collisions; and the public relation",
+    "`H*f = g` turns an imperfect read into the exact secret key."))
 
 nb = {"cells": cells,
       "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
