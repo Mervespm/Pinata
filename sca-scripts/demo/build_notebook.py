@@ -154,9 +154,10 @@ cells.append(code(
     "        break",
     "    print('   a kept read was wrong - re-reading and retrying')",
     "",
-    "print('\\nrecovered f[0:16] :', f_rec[:16].tolist())",
-    "print('secret    f[0:16] :', f_true[:16].tolist())",
-    "print('secret key recovered :', np.array_equal(f_rec, f_true) and np.array_equal(g_rec, g_true))"))
+    "np.set_printoptions(threshold=np.inf, linewidth=120)",
+    "print('recovered f (all', len(f_rec), 'coefficients):'); print(f_rec)",
+    "print('\\nrecovered g (all', len(g_rec), 'coefficients):'); print(g_rec)",
+    "print('\\nsecret key recovered :', np.array_equal(f_rec, f_true) and np.array_equal(g_rec, g_true))"))
 
 nb = {"cells": cells,
       "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
