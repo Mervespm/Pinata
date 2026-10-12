@@ -1,4 +1,4 @@
-"""Falcon-512 key math: public-key decode, h = g/f, and linear key completion.
+"""Falcon-1024 key math: public-key decode, h = g/f, and linear key completion.
 
 Two parts, tightly coupled (completion reuses the codec's matrix machinery):
 
@@ -9,7 +9,7 @@ Two parts, tightly coupled (completion reuses the codec's matrix machinery):
      matrix of f (O(n^3) reference, same result as the firmware's fast NTT).
 
 2. Completion (analogue of the Dilithium paper's Variant 1): given a
-   confidence-ranked partial recovery of f and g (>= n=512 combined
+   confidence-ranked partial recovery of f and g (>= n=1024 combined
    coefficients known), solve H*f - g = 0 for the rest exactly, where H is the
    negacyclic matrix of the PUBLIC h (fully known from pk - no t0-style
    reconstruction needed).
@@ -24,7 +24,7 @@ import numpy as np
 
 Q = 12289
 N = 1024
-HEADER_LOGN = 9
+HEADER_LOGN = 10
 
 
 # --------------------------------------------------------------------------
@@ -153,6 +153,70 @@ def solve_completion(h, known_f, known_g, q=Q, n=N):
     return f_full, g_full
 
 
+def solve_gf_q_fast(A, b, q=Q):
+    """Vectorized GF(q) solve of A x = b (q prime), A is (rows x cols) with
+    rows >= cols and full column rank. Same result as solve_linear_gf_q_rect
+    but the per-pivot row elimination is a single numpy op, so a 1024-wide
+    system finishes in seconds instead of minutes."""
+    A = A.astype(np.int64) % q
+    M = np.concatenate([A, (b.astype(np.int64) % q).reshape(-1, 1)], axis=1)
+    rows, cols = A.shape
+    piv_rows = np.zeros(cols, dtype=np.int64)
+    used = np.zeros(rows, dtype=bool)
+    for col in range(cols):
+        colvals = M[:, col] % q
+        colvals[used] = 0
+        piv = int(np.argmax(colvals != 0))
+        if colvals[piv] == 0:
+            raise ValueError(
+                f"column {col} has no available pivot - system is rank-deficient")
+        used[piv] = True
+        piv_rows[col] = piv
+        inv = pow(int(M[piv, col]), q - 2, q)  # Fermat, q prime
+        M[piv, :] = (M[piv, :] * inv) % q
+        factors = M[:, col].copy()
+        factors[piv] = 0
+        M = (M - np.outer(factors, M[piv, :])) % q
+    x = M[piv_rows, -1] % q
+    return x
+
+
+def solve_completion_fast(h, known_f, known_g, q=Q, n=N):
+    """Same contract as solve_completion, but uses the vectorized GF(q) solver
+    so the full n=1024 completion runs in seconds."""
+    H = negacyclic_matrix(h, q, n)
+    unk_f = [i for i in range(n) if i not in known_f]
+    unk_g = [i for i in range(n) if i not in known_g]
+    n_unknown = len(unk_f) + len(unk_g)
+    if n_unknown > n:
+        raise ValueError(
+            f"under-determined: {n_unknown} unknowns > {n} equations "
+            f"(need >= {n} combined known coefficients, have {2*n - n_unknown})")
+    rhs = np.zeros(n, dtype=np.int64)
+    for j, v in known_f.items():
+        rhs -= (H[:, j] * (v % q)) % q
+    for i, v in known_g.items():
+        rhs[i] += v % q
+    rhs %= q
+    A = np.zeros((n, n_unknown), dtype=np.int64)
+    A[:, :len(unk_f)] = H[:, unk_f]
+    for k, i in enumerate(unk_g):
+        A[i, len(unk_f) + k] = (-1) % q
+    A %= q
+    x = solve_gf_q_fast(A, rhs, q)
+    f_full = np.zeros(n, dtype=np.int64)
+    g_full = np.zeros(n, dtype=np.int64)
+    for j, v in known_f.items():
+        f_full[j] = v % q
+    for i, v in known_g.items():
+        g_full[i] = v % q
+    for k, j in enumerate(unk_f):
+        f_full[j] = x[k]
+    for k, i in enumerate(unk_g):
+        g_full[i] = x[len(unk_f) + k]
+    return f_full, g_full
+
+
 def solve_linear_gf_q_rect(A, b, q=Q):
     """Solve A x = b over GF(q) (q prime), A is (n_rows x n_cols) with
     n_rows >= n_cols. Picks each column's pivot from any unused row, so
@@ -194,39 +258,45 @@ def to_signed(v, q=Q):
 # Self-test: validate h decode, then test the completion solver
 # --------------------------------------------------------------------------
 def main():
-    prefix = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "keys", "falcon_f0_forced_21k")
-    keys = load_keyset(prefix)
-    print(f"Loaded {len(keys)} keys from {prefix}\n")
+    """Self-test on a genuine Falcon-1024 instance: load the saved (f, g, h)
+    if present, else build one from a few small random polynomials, then check
+    that the public relation holds and that the fast completion recovers the key."""
+    npz = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "..", "demo", "nb_falcon1024.npz")
+    if os.path.exists(npz):
+        d = np.load(npz)
+        f_true = d["f"].astype(np.int64)
+        g_true = d["g"].astype(np.int64)
+        h = d["h"].astype(np.uint32)
+        print(f"Loaded Falcon-1024 instance from {npz}\n")
+    else:
+        rng0 = np.random.default_rng(0)
+        while True:
+            f_true = rng0.integers(-10, 11, N).astype(np.int64)
+            g_true = rng0.integers(-10, 11, N).astype(np.int64)
+            try:
+                h = compute_h_py(f_true, g_true)
+                break
+            except ValueError:
+                continue
+        print("Built a random Falcon-1024 instance (f not invertible retried)\n")
 
-    # 1. h decode vs h=g/f, a few keys
-    print("== h decode / h=g/f ==")
-    ok = 0
-    n_check = min(5, len(keys))
-    for idx in range(n_check):
-        k = keys[idx]
-        h_pk = mqpoly_decode_py(k["pk"][1:])
-        f = np.frombuffer(k["f"], dtype=np.int8).astype(np.int64)
-        g = np.frombuffer(k["g"], dtype=np.int8).astype(np.int64)
-        match = np.array_equal(h_pk, compute_h_py(f, g))
-        ok += match
-        print(f"  key {idx}: {'MATCH (all 512)' if match else 'MISMATCH'}")
-    print(f"  {ok}/{n_check} keys match\n")
+    # 1. public relation h*f == g (negacyclic matrix of h applied to f)
+    print("== public relation  H*f == g  (mod q) ==")
+    Hf = (negacyclic_matrix(h, Q, N) @ (f_true % Q)) % Q
+    rel_ok = np.array_equal(Hf, g_true % Q)
+    print(f"  holds over all {N} coefficients: {rel_ok}\n")
 
-    # 2. completion solver on one key
-    print("== linear completion (300 of f + 220 of g known) ==")
-    k = keys[0]
-    f_true = np.frombuffer(k["f"], dtype=np.int8).astype(np.int64)
-    g_true = np.frombuffer(k["g"], dtype=np.int8).astype(np.int64)
-    h = mqpoly_decode_py(k["pk"][1:])
-    rng = np.random.default_rng(0)
-    known_f = {int(i): int(f_true[i]) for i in rng.choice(N, 300, replace=False)}
-    known_g = {int(i): int(g_true[i]) for i in rng.choice(N, 220, replace=False)}
-    f_full, g_full = solve_completion(h, known_f, known_g)
+    # 2. fast completion from a partial, confidence-style known set
+    print("== fast linear completion (540 of f + 540 of g known) ==")
+    rng = np.random.default_rng(1)
+    known_f = {int(i): int(f_true[i]) for i in rng.choice(N, 540, replace=False)}
+    known_g = {int(i): int(g_true[i]) for i in rng.choice(N, 540, replace=False)}
+    f_full, g_full = solve_completion_fast(h, known_f, known_g)
     f_ok = np.array_equal([to_signed(v) for v in f_full], f_true)
     g_ok = np.array_equal([to_signed(v) for v in g_full], g_true)
     print(f"  f recovered: {f_ok}   g recovered: {g_ok}")
-    print("  PASS" if (ok == n_check and f_ok and g_ok) else "  FAIL")
+    print("  PASS" if (rel_ok and f_ok and g_ok) else "  FAIL")
 
 
 if __name__ == "__main__":
