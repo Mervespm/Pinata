@@ -23,7 +23,7 @@ import sys
 import numpy as np
 
 Q = 12289
-N = 512
+N = 1024
 HEADER_LOGN = 9
 
 
