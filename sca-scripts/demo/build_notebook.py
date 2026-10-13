@@ -94,15 +94,16 @@ cells.append(code(
     "seg = example[:8000] - example[:8000].mean()",
     "ac = np.correlate(seg, seg, 'full')[len(seg) - 1:]",
     "ac = ac / ac[0]",
-    "peaks = [k for k in range(100, 1500) if ac[k] > 0.25 and ac[k] >= ac[k-1] and ac[k] >= ac[k+1]]",
+    "peaks = [k for k in range(100, 1600) if ac[k] > 0.25 and ac[k] >= ac[k-1] and ac[k] >= ac[k+1]]",
     "stride = peaks[0]                                # first repeat peak = one coefficient",
     "plt.figure(figsize=(8, 2.8))",
-    "plt.plot(ac[:1600])",
-    "plt.axvline(stride, color='C3', ls='--')",
-    "plt.text(stride + 20, 0.6, f'stride ~ {stride} samples\\n(one coefficient)', color='C3')",
+    "plt.plot(ac[:1700])",
+    "for m, k in enumerate(peaks, start=1):",
+    "    plt.axvline(k, color='C3', ls='--')",
+    "    plt.text(k, 0.55, f'{m}x', color='C3', ha='center')",
     "plt.xlabel('shift (samples)'); plt.ylabel('self-similarity')",
-    "plt.title('the decode repeats once per coefficient'); plt.show()",
-    "print('stride ~', stride, 'samples per coefficient')"))
+    "plt.title(f'decode repeats every ~{stride} samples = one coefficient'); plt.show()",
+    "print('stride ~', stride, 'samples per coefficient;  repeat peaks at', peaks)"))
 
 cells.append(md(
     "## 2. Attack one coefficient",
