@@ -125,6 +125,7 @@ cells.append(code(
     "    normalized = (trace - mu) / sd",
     "    return normalized @ W.T + b",
     "",
+    "print(f'attacking f[0]   (true secret value = {f_true[0]:+d})\\n')",
     "s = scores(measure(f_true[0]))",
     "order = np.argsort(s)[::-1]            # sort candidates, best first",
     "",
@@ -134,7 +135,7 @@ cells.append(code(
     "",
     "best = candidates[order[0]]",
     "confidence = s[order[0]] - s[order[1]]",
-    "print(f'\\npredicted f[0] = {best:+d}   confidence {confidence:.2f}')"))
+    "print(f'\\npredicted f[0] = {best:+d}   (true {f_true[0]:+d})   confidence {confidence:.2f}')"))
 
 cells.append(md("## 3. A few more coefficients"))
 cells.append(code(
