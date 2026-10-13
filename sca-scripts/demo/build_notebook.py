@@ -1,9 +1,9 @@
-"""Builds falcon_demo.ipynb - a lean, attacker's-eye single-trace demo (Falcon-512).
+"""Builds falcon_demo.ipynb - a lean, attacker's-eye single-trace demo (Falcon-1024).
 
-The attacked key's f is a REAL captured secret (from the shown trace); g and the
-public key h are generated to form a valid key (they were not measured). Flow:
-victim trace -> periodic loop -> attack one coefficient -> a few more -> recover
-the full key via the public key, checked by the Falcon coefficient bound.
+f[0] is read from a REAL power trace; the full key (f, g, h) is a valid
+Falcon-1024 instance used to demonstrate full-key recovery. Flow: victim trace ->
+periodic loop -> attack one coefficient -> a few more -> recover the full key via
+the public key, checked by the Falcon-1024 coefficient bound [-15, 15].
 """
 import json
 
@@ -20,34 +20,34 @@ def code(*l):
 cells = []
 
 cells.append(md(
-    "# Single-Trace Attack on Falcon-512",
+    "# Single-Trace Attack on Falcon-1024",
     "",
     "The attacker has power traces of the victim device and a set of **templates** - one per",
     "possible coefficient value. Goal: recover the secret key `f, g`.",
     "",
     "This is a **profiled per-coefficient attack**: profile one coefficient of the decode over all",
     "its values, and - because the decode is a constant-time loop - apply that template to every",
-    "coefficient. The attacked `f` is a **real captured secret** (the one in the trace below); `g`",
-    "and the public key `h` are generated to form a valid key (they were not measured).",
+    "coefficient. `f[0]` is read from a **real power trace** (the one below); the full key `f, g, h`",
+    "is a valid Falcon-1024 instance used to demonstrate recovery of all 1024 coefficients.",
     "",
     "Templates are already trained; we only run the attack."))
 
 cells.append(code(
-    "import os, sys, random",
+    "import os, sys",
     "import numpy as np",
     "import matplotlib.pyplot as plt",
     "import trsfile",
     "sys.path.insert(0, os.path.abspath(os.path.join('..', 'template_attack')))",
     "import falcon_keymath as km",
-    "n = 512                               # Falcon-512",
+    "n = 1024                              # Falcon-1024",
     "",
     "# trained templates: one model per possible coefficient value",
     "T = np.load(os.path.join('..', 'template_attack', 'templates.npz'))",
     "candidates = T['classes'] - 10; pois = T['pois']",
     "mu, sd, W, b = T['mu'], T['sd'], T['W_lda'], T['b_lda']",
     "",
-    "# the victim key: real f (from the trace), generated g and public h",
-    "K = np.load('nb_falcon512.npz')",
+    "# the victim key: valid Falcon-1024 instance (f, g) and its public h; f[0] is from a real trace",
+    "K = np.load('nb_falcon1024.npz')",
     "f_true = K['f'].astype(int); g_true = K['g'].astype(int); h = K['h'].astype(np.uint32)",
     "example = K['example'].astype(float)",
     "",
@@ -88,44 +88,55 @@ cells.append(md(
     "its value to the measured traces of that value (next)."))
 
 cells.append(md(
-    "## 2. Attack one coefficient",
+    "## 2. Attack the coefficient in that trace",
     "",
-    "Each coefficient is measured a few times (here 45 traces) and **averaged** to cut the noise.",
-    "We score that trace against every template and rank the candidate values. The best is the",
-    "prediction; the gap to the runner-up is the confidence."))
+    "The capture is aligned to the first coefficient, so this trace is an `f[0]` measurement. We",
+    "take **that exact trace**, read it at the template's sample points, score it against every",
+    "template, and rank the candidate values. The best is the prediction; the gap to the",
+    "runner-up is the confidence."))
 cells.append(code(
-    "random.seed(0)",
-    "def measure(value, k=45):",
-    "    # average k real traces of a coefficient with this value",
-    "    if value not in traces or len(traces[value]) < k:",
-    "        return None                       # value outside the templates' range",
-    "    return np.mean(random.sample(list(traces[value]), k), axis=0)",
-    "",
     "def scores(trace):",
     "    return ((trace - mu) / sd) @ W.T + b   # one score per candidate value",
     "",
-    "print(f'attacking f[0]   (true secret value = {f_true[0]:+d})\\n')",
-    "s = scores(measure(f_true[0])); order = np.argsort(s)[::-1]",
+    "victim = example[pois]                     # the trace from section 1, at the template's points",
+    "print(f'attacking f[0] in the trace above   (true secret value = {f_true[0]:+d})\\n')",
+    "s = scores(victim); order = np.argsort(s)[::-1]",
     "print('candidate  score')",
     "for j in order[:5]:",
     "    print(f'  {candidates[j]:+d}   {s[j]:8.2f}')",
     "print(f'\\npredicted f[0] = {candidates[order[0]]:+d}   (true {f_true[0]:+d})   confidence {s[order[0]] - s[order[1]]:.2f}')"))
 
-cells.append(md("## 3. A few more coefficients"))
+cells.append(md(
+    "## 3. A few more coefficients",
+    "",
+    "In a full-key capture every coefficient would sit at its own offset in one trace. **This**",
+    "dataset only aligns `f[0]`, so to read the other coefficients we use real captures grouped by",
+    "the value they measured - averaging a few (here 45) to cut the noise - and score each the same",
+    "way. The confidence is higher here only because these are averaged."))
 cells.append(code(
+    "def measure(value, k=45):",
+    "    # average the first k real traces of a coefficient with this value (fixed, not random)",
+    "    if value not in traces or len(traces[value]) < k:",
+    "        return None                       # value outside the templates' range",
+    "    return traces[value][:k].mean(axis=0)",
+    "",
     "for i in range(10):",
-    "    s = scores(measure(f_true[i])); o = np.argsort(s)[::-1]",
+    "    trace = measure(f_true[i])",
+    "    if trace is None:",
+    "        print(f'f[{i:>2}]  secret {f_true[i]:+d}  outside template range -> recovered later by the public key')",
+    "        continue",
+    "    s = scores(trace); o = np.argsort(s)[::-1]",
     "    print(f'f[{i:>2}]  predicted {candidates[o[0]]:+d}   (secret {f_true[i]:+d})   confidence {s[o[0]] - s[o[1]]:.2f}')"))
 
 cells.append(md(
     "## 4. Recover the full key",
     "",
     "The template reads every coefficient of `f` and `g`. A few values fall outside the templates'",
-    "range - those stay unknown. We keep the 520 most-confident reads and solve the public relation",
-    "`H*f = g (mod 12289)` for the rest (`n = 512`, so 512 equations pin the 1024 unknowns).",
+    "range - those stay unknown. We keep the 1030 most-confident reads and solve the public relation",
+    "`H*f = g (mod 12289)` for the rest (`n = 1024`, so 1024 equations pin the 2048 unknowns).",
     "",
-    "**Check:** every Falcon-512 coefficient must lie in **[-31, 31]**. If the solved key stays in",
-    "range it is correct; if not, a trusted read was wrong, so we re-read and retry."))
+    "**Check:** every Falcon-1024 coefficient must lie in **[-15, 15]**. If the solved key stays in",
+    "range, the recovery is self-consistent and correct."))
 cells.append(code(
     "def recover():",
     "    reads = []",
@@ -137,21 +148,16 @@ cells.append(code(
     "            s = scores(trace); o = np.argsort(s)[::-1]",
     "            reads.append((s[o[0]] - s[o[1]], name, i, int(candidates[o[0]])))",
     "    reads.sort(reverse=True)",
-    "    known_f = {i: v for conf, name, i, v in reads[:520] if name == 'f'}",
-    "    known_g = {i: v for conf, name, i, v in reads[:520] if name == 'g'}",
+    "    known_f = {i: v for conf, name, i, v in reads[:1030] if name == 'f'}",
+    "    known_g = {i: v for conf, name, i, v in reads[:1030] if name == 'g'}",
     "    f_full, g_full = km.solve_completion_fast(h, known_f, known_g, n=n)",
     "    f_rec = np.array([km.to_signed(v) for v in f_full])",
     "    g_rec = np.array([km.to_signed(v) for v in g_full])",
     "    return f_rec, g_rec",
     "",
-    "random.seed(0)",
-    "for attempt in range(1, 6):",
-    "    f_rec, g_rec = recover()",
-    "    in_range = bool(np.all(np.abs(f_rec) <= 31) and np.all(np.abs(g_rec) <= 31))",
-    "    print(f'attempt {attempt}: coefficients in [-31, 31]? {in_range}')",
-    "    if in_range:",
-    "        break",
-    "    print('   a kept read was wrong - re-reading and retrying')",
+    "f_rec, g_rec = recover()",
+    "in_range = bool(np.all(np.abs(f_rec) <= 15) and np.all(np.abs(g_rec) <= 15))",
+    "print(f'every coefficient in Falcon-1024 range [-15, 15]? {in_range}')",
     "",
     "np.set_printoptions(threshold=np.inf, linewidth=120)",
     "print('\\nrecovered f (all', len(f_rec), 'coefficients):'); print(f_rec)",
