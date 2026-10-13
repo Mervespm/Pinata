@@ -87,6 +87,26 @@ cells.append(code(
     "plt.show()"))
 
 cells.append(md(
+    "## 1c. The decode is a periodic loop",
+    "",
+    "The decode runs the same code for every coefficient, so the signal is **periodic**. Sliding",
+    "the trace against itself (autocorrelation) it lines back up every ~373 samples:"))
+cells.append(code(
+    "seg = example[:8000] - example[:8000].mean()",
+    "ac = np.correlate(seg, seg, 'full')[len(seg) - 1:]; ac = ac / ac[0]",
+    "peaks = [k for k in range(100, 1600) if ac[k] > 0.25 and ac[k] >= ac[k-1] and ac[k] >= ac[k+1]]",
+    "plt.figure(figsize=(8, 2.8)); plt.plot(ac[:1700])",
+    "for m, k in enumerate(peaks, start=1):",
+    "    plt.axvline(k, color='C3', ls='--'); plt.text(k, 0.55, f'{m}x', color='C3', ha='center')",
+    "plt.xlabel('shift (samples)'); plt.ylabel('self-similarity')",
+    "plt.title(f'decode repeats every ~{peaks[0]} samples'); plt.show()",
+    "print('repeat period ~', peaks[0], 'samples;  peaks at', peaks)"))
+cells.append(md(
+    "In a **full-key capture**, each coefficient would be read at its own offset in one trace. In",
+    "**this** dataset every trace is an `f[0]` measurement, so we read each coefficient by matching",
+    "its value to the measured traces of that value (next)."))
+
+cells.append(md(
     "## 2. Attack one coefficient",
     "",
     "Each coefficient is measured a few times (here 45 traces) and **averaged** to cut the noise.",
