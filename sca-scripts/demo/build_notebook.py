@@ -82,6 +82,29 @@ cells.append(code(
     "plt.show()"))
 
 cells.append(md(
+    "## 1c. How we find one coefficient",
+    "",
+    "The decode is a constant-time loop, so it repeats once per coefficient. Sliding the trace",
+    "against itself (autocorrelation) it lines back up every ~380 samples - that spacing is the",
+    "**stride**, so coefficient `i` sits at `start + i * stride`. We slide the same template to each.",
+    "",
+    "*(Illustrative: the attack below uses traces already windowed per coefficient, so it does not",
+    "need this number.)*"))
+cells.append(code(
+    "seg = example[:8000] - example[:8000].mean()",
+    "ac = np.correlate(seg, seg, 'full')[len(seg) - 1:]",
+    "ac = ac / ac[0]",
+    "peaks = [k for k in range(100, 1500) if ac[k] > 0.25 and ac[k] >= ac[k-1] and ac[k] >= ac[k+1]]",
+    "stride = peaks[0]                                # first repeat peak = one coefficient",
+    "plt.figure(figsize=(8, 2.8))",
+    "plt.plot(ac[:1600])",
+    "plt.axvline(stride, color='C3', ls='--')",
+    "plt.text(stride + 20, 0.6, f'stride ~ {stride} samples\\n(one coefficient)', color='C3')",
+    "plt.xlabel('shift (samples)'); plt.ylabel('self-similarity')",
+    "plt.title('the decode repeats once per coefficient'); plt.show()",
+    "print('stride ~', stride, 'samples per coefficient')"))
+
+cells.append(md(
     "## 2. Attack one coefficient",
     "",
     "Each coefficient is measured a few times (here 45 traces) and **averaged** to cut the noise.",
@@ -146,6 +169,7 @@ cells.append(code(
     "",
     "# the solve needs every kept read correct; if one was wrong the result leaves",
     "# [-15, 15]. That bound is the check: if it fails, re-read and try again.",
+    "random.seed(0)                        # deterministic, so this cell always reproduces",
     "for attempt in range(1, 6):",
     "    f_rec, g_rec = recover()",
     "    in_range = bool(np.all(np.abs(f_rec) <= 15) and np.all(np.abs(g_rec) <= 15))",
