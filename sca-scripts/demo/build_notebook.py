@@ -24,6 +24,11 @@ cells.append(md(
     "The attacker has power traces of the victim device and a set of **templates** - one per",
     "possible coefficient value (-10 .. +10). Goal: recover the secret key `f, g`.",
     "",
+    "This is a **profiled per-coefficient attack**: we profile one coefficient of the decode over",
+    "all its values, and - because the decode is a constant-time loop that treats every coefficient",
+    "the same - apply that template to **every** coefficient of the key. Each coefficient is read",
+    "using the measured per-value leakage, then the public key completes the full key.",
+    "",
     "Templates are already trained; we only run the attack."))
 
 cells.append(code(
@@ -80,30 +85,6 @@ cells.append(code(
     "plt.annotate('mod-q  0.38', xy=(92.7, corr[92676]), xytext=(115, 0.55), arrowprops=dict(arrowstyle='->'))",
     "plt.xlabel('time (us)'); plt.ylabel('|correlation with secret|'); plt.title('two attack points')",
     "plt.show()"))
-
-cells.append(md(
-    "## 1c. How we find one coefficient",
-    "",
-    "The decode is a constant-time loop, so it repeats once per coefficient. Sliding the trace",
-    "against itself (autocorrelation) it lines back up every ~380 samples - that spacing is the",
-    "**stride**, so coefficient `i` sits at `start + i * stride`. We slide the same template to each.",
-    "",
-    "*(Illustrative: the attack below uses traces already windowed per coefficient, so it does not",
-    "need this number.)*"))
-cells.append(code(
-    "seg = example[:8000] - example[:8000].mean()",
-    "ac = np.correlate(seg, seg, 'full')[len(seg) - 1:]",
-    "ac = ac / ac[0]",
-    "peaks = [k for k in range(100, 1600) if ac[k] > 0.25 and ac[k] >= ac[k-1] and ac[k] >= ac[k+1]]",
-    "stride = peaks[0]                                # first repeat peak = one coefficient",
-    "plt.figure(figsize=(8, 2.8))",
-    "plt.plot(ac[:1700])",
-    "for m, k in enumerate(peaks, start=1):",
-    "    plt.axvline(k, color='C3', ls='--')",
-    "    plt.text(k, 0.55, f'{m}x', color='C3', ha='center')",
-    "plt.xlabel('shift (samples)'); plt.ylabel('self-similarity')",
-    "plt.title(f'decode repeats every ~{stride} samples = one coefficient'); plt.show()",
-    "print('stride ~', stride, 'samples per coefficient;  repeat peaks at', peaks)"))
 
 cells.append(md(
     "## 2. Attack one coefficient",
