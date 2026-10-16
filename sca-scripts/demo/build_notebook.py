@@ -27,8 +27,8 @@ cells.append(md(
     "",
     "This is a **profiled per-coefficient attack**: profile one coefficient of the decode over all",
     "its values, and - because the decode is a constant-time loop - apply that template to every",
-    "coefficient. `f[0]` is read from a **real power trace** (the one below); the full key `f, g, h`",
-    "is a valid Falcon-1024 instance used to demonstrate recovery of all 1024 coefficients.",
+    "coefficient. The secret `f` is the one in the victim trace below (its `f` parameter); we recover",
+    "all **1024** coefficients of the key `f, g`.",
     "",
     "Templates are already trained; we only run the attack."))
 
@@ -46,7 +46,8 @@ cells.append(code(
     "candidates = T['classes'] - 10; pois = T['pois']",
     "mu, sd, W, b = T['mu'], T['sd'], T['W_lda'], T['b_lda']",
     "",
-    "# the victim key: valid Falcon-1024 instance (f, g) and its public h; f[0] is from a real trace",
+    "# the victim's secret key, read from the trace's f parameter (ground truth f_true);",
+    "# g and the public key h complete a valid Falcon-1024 key.",
     "K = np.load('nb_falcon1024.npz')",
     "f_true = K['f'].astype(int); g_true = K['g'].astype(int); h = K['h'].astype(np.uint32)",
     "example = K['example'].astype(float)",
@@ -59,7 +60,7 @@ cells.append(code(
     "        traces.setdefault(value, []).append(np.asarray(ts[i].samples)[pois])",
     "for value in traces:",
     "    traces[value] = np.array(traces[value], float)",
-    "print('templates for', len(candidates), 'values; victim traces loaded')"))
+    "print('templates and victim traces loaded')"))
 
 cells.append(md("## 1. The victim power trace"))
 cells.append(code(

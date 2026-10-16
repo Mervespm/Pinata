@@ -9,8 +9,8 @@
 //ML-DSA/ML-KEM commands have been removed, leaving only Falcon key loading,
 //signing and verification plus the generic board infrastructure they need.
 //
-//Falcon (FN-DSA-512) command protocol
-//  SET_PUBLIC_AND_PRIVATE_KEY : host sends pk (897 B) then sk (1281 B); the
+//Falcon (FN-DSA-1024) command protocol
+//  SET_PUBLIC_AND_PRIVATE_KEY : host sends pk (1793 B) then sk (2305 B); the
 //        board stores them and replies 0x00. The keypair is GENERATED OFF-BOARD
 //        (host-side keygen, tools/host_keygen) and loaded here - the board does
 //        not run key generation itself. sk = the signing key (the secret short

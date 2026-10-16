@@ -4,15 +4,15 @@
 #include <stdint.h>
 #include <stddef.h>
 
-// FN-DSA (FIPS 206), degree 512, i.e. what used to be called "Falcon-512".
-// Sizes below match pqm4's crypto_sign/fndsa_provisional-512/m4f/api.h
-// (FNDSA_VRFY_KEY_SIZE(9), FNDSA_SIGN_KEY_SIZE(9), FNDSA_SIGNATURE_SIZE(9)).
+// FN-DSA (FIPS 206), degree 1024, i.e. what used to be called "Falcon-1024".
+// Sizes below match pqm4's crypto_sign/fndsa_provisional-1024/m4f/api.h
+// (FNDSA_VRFY_KEY_SIZE(10), FNDSA_SIGN_KEY_SIZE(10), FNDSA_SIGNATURE_SIZE(10)).
 // The signature is fixed-size (no variable-length framing), which fits
 // Pinata's fixed-size request/response protocol - the same reason ML-DSA
 // (rather than a variable-length scheme) was chosen.
-#define FALCON_PUBLIC_KEY_SIZE 897
-#define FALCON_PRIVATE_KEY_SIZE 1281
-#define FALCON_SIGNATURE_SIZE 666
+#define FALCON_PUBLIC_KEY_SIZE 1793
+#define FALCON_PRIVATE_KEY_SIZE 2305
+#define FALCON_SIGNATURE_SIZE 1280
 #define FALCON_MESSAGE_SIZE 16
 #define FALCON_SIGNED_MESSAGE_SIZE (FALCON_SIGNATURE_SIZE + FALCON_MESSAGE_SIZE)
 

@@ -226,7 +226,7 @@ set(mlkem_source_files
     "${mlkem_base_dir}/symmetric-fips202.c"
     "${mlkem_base_dir}/verify.c"
 )
-set(fndsa_base_dir "${pqm4_SOURCE_DIR}/crypto_sign/fndsa_provisional-512/m4f")
+set(fndsa_base_dir "${pqm4_SOURCE_DIR}/crypto_sign/fndsa_provisional-1024/m4f")
 set(fndsa_source_files
     "${fndsa_base_dir}/codec.c"
     "${fndsa_base_dir}/codec_cm4.s"
@@ -290,7 +290,7 @@ add_dependencies(pqc apply-mldsa-sign-patch)
 # Falcon (FN-DSA) uses the upstream fndsa sources unmodified - the scope trigger
 # is driven from main.c around the sign() call, so no source patch is needed.
 # Revert the nested mupq tree to pristine in case an earlier build patched it
-# (fndsa_provisional-512/m4f/sign.c is a symlink into mupq's ref/sign.c).
+# (fndsa_provisional-1024/m4f/sign.c is a symlink into mupq's ref/sign.c).
 add_custom_command(
     OUTPUT
         "${CMAKE_CURRENT_BINARY_DIR}/fndsa-pristine.applied"

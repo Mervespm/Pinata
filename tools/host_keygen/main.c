@@ -1,8 +1,8 @@
 /*
- * host_keygen: generates N *valid* FN-DSA-512 (Falcon-512) keypairs on the
+ * host_keygen: generates N *valid* FN-DSA-1024 (Falcon-1024) keypairs on the
  * host PC, using the exact same portable-C keygen/codec algorithm that runs
  * on the Pinata board (see fndsa/ in this directory - a frozen copy of
- * Pinata/build/_deps/pqm4-src/crypto_sign/fndsa_provisional-512/m4f, minus
+ * Pinata/build/_deps/pqm4-src/crypto_sign/fndsa_provisional-1024/m4f, minus
  * the Cortex-M4 assembly).
  *
  * This exists because a profiled (template) side-channel attack needs many
@@ -12,12 +12,12 @@
  * trace with the true coefficient values it should be learning to recover.
  *
  * The all-zero placeholder key in inspector-scripts/falcon_sca_pinata.py
- * is not a valid encoded key (byte 0 must be 0x59 for logn=9) and every
+ * is not a valid encoded key (byte 0 must be 0x5A for logn=10) and every
  * sign attempt against it fails - this tool is what replaces it.
  *
  * Output: two files next to each other,
  *   <prefix>.bin       - back-to-back fixed-size records, one per key:
- *                         pk (897B) || sk (1281B) || f (512B, int8) || g (512B, int8)
+ *                         pk (1793B) || sk (2305B) || f (1024B, int8) || g (1024B, int8)
  *   <prefix>.meta.json - record count/size/offsets, so the Python loader
  *                         doesn't have to hardcode the layout blindly.
  */
@@ -30,11 +30,11 @@
 #include "fndsa/fndsa.h"
 #include "fndsa/inner.h"
 
-#define LOGN 9u
+#define LOGN 10u
 #define N_COEFFS (1u << LOGN)
 #define SK_SIZE FNDSA_SIGN_KEY_SIZE(LOGN)
 #define PK_SIZE FNDSA_VRFY_KEY_SIZE(LOGN)
-#define FG_NBITS 6u /* max_fg_bits for logn=9: f and g are packed 6 bits/coeff */
+#define FG_NBITS 5u /* max_fg_bits for logn=10: f and g are packed 5 bits/coeff */
 
 static int decode_fg(const uint8_t *sk, int8_t *f, int8_t *g) {
 	/* Mirrors fndsa/sign.c's sign_step1(): byte 0 is a header, then f and g
@@ -77,8 +77,8 @@ static int build_variant_sk(const uint8_t *base_sk, uint8_t *out_sk,
 	int8_t f_variant[N_COEFFS];
 	memcpy(f_variant, base_f, sizeof f_variant);
 	f_variant[coeff_index] = (int8_t)value;
-	size_t f_packed_len = ((size_t)FG_NBITS << LOGN) >> 3; /* 384 for logn=9 */
-	uint8_t packed[384];
+	size_t f_packed_len = ((size_t)FG_NBITS << LOGN) >> 3; /* 640 for logn=10 */
+	uint8_t packed[640];
 	if (trim_i8_encode(LOGN, f_variant, FG_NBITS, packed) != f_packed_len) {
 		return 0;
 	}
@@ -113,7 +113,7 @@ static int run_sweep(unsigned coeff_index, const char *prefix) {
 	}
 
 	long written = 0;
-	for (int value = -31; value <= 31; value++) {
+	for (int value = -15; value <= 15; value++) {
 		uint8_t sk_variant[SK_SIZE];
 		if (!build_variant_sk(base_sk, sk_variant, base_f, coeff_index, value)) {
 			fprintf(stderr, "value %d: re-encode failed, skipping\n", value);
@@ -193,8 +193,8 @@ static int run_force_coeff(unsigned coeff_index, int lo, int hi, long count_per_
 		fprintf(stderr, "coeff_index must be in 0..%u\n", N_COEFFS - 1);
 		return 1;
 	}
-	if (lo < -31 || hi > 31 || lo > hi) {
-		fprintf(stderr, "target value range must be within -31..31 and lo <= hi\n");
+	if (lo < -15 || hi > 15 || lo > hi) {
+		fprintf(stderr, "target value range must be within -15..15 and lo <= hi\n");
 		return 1;
 	}
 
@@ -301,7 +301,7 @@ int main(int argc, char **argv) {
 		if (argc < 3) {
 			fprintf(stderr,
 				"usage: %s sweep <coeff_index> [output_prefix=falcon_sweep]\n"
-				"generates one base key, then all 63 valid variants of\n"
+				"generates one base key, then all 31 valid variants of\n"
 				"f[coeff_index] (everything else held fixed: g, F, pk).\n",
 				argv[0]);
 			return 1;
@@ -315,8 +315,8 @@ int main(int argc, char **argv) {
 		fprintf(stderr,
 			"usage: %s <num_keys> [output_prefix=falcon_keys]\n"
 			"       %s sweep <coeff_index> [output_prefix=falcon_sweep]\n"
-			"generates <num_keys> independent valid FN-DSA-512 keypairs (for a\n"
-			"full joint-recovery attack), or a single-coefficient sweep (63\n"
+			"generates <num_keys> independent valid FN-DSA-1024 keypairs (for a\n"
+			"full joint-recovery attack), or a single-coefficient sweep (31\n"
 			"variants of one base key, for profiling one coefficient first).\n",
 			argv[0], argv[0]);
 		return 1;

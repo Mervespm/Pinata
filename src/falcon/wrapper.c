@@ -8,15 +8,15 @@
 // wrappers - those names collide with ML-DSA's identically-named functions
 // in this same firmware image. fndsa.h exposes uniquely-prefixed functions
 // instead, which is what we call directly below.
-#include <fndsa.h>       // include is located in pqm4's fndsa_provisional-512/m4f
+#include <fndsa.h>       // include is located in pqm4's fndsa_provisional-1024/m4f
 
-#if FALCON_PUBLIC_KEY_SIZE != FNDSA_VRFY_KEY_SIZE(FNDSA_LOGN_512)
+#if FALCON_PUBLIC_KEY_SIZE != FNDSA_VRFY_KEY_SIZE(FNDSA_LOGN_1024)
 #error invalid public key size, update me!
 #endif
-#if FALCON_PRIVATE_KEY_SIZE != FNDSA_SIGN_KEY_SIZE(FNDSA_LOGN_512)
+#if FALCON_PRIVATE_KEY_SIZE != FNDSA_SIGN_KEY_SIZE(FNDSA_LOGN_1024)
 #error invalid private key size, update me!
 #endif
-#if FALCON_SIGNATURE_SIZE != FNDSA_SIGNATURE_SIZE(FNDSA_LOGN_512)
+#if FALCON_SIGNATURE_SIZE != FNDSA_SIGNATURE_SIZE(FNDSA_LOGN_1024)
 #error invalid signature size, update me!
 #endif
 

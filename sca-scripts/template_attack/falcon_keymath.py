@@ -272,8 +272,8 @@ def main():
     else:
         rng0 = np.random.default_rng(0)
         while True:
-            f_true = rng0.integers(-10, 11, N).astype(np.int64)
-            g_true = rng0.integers(-10, 11, N).astype(np.int64)
+            f_true = rng0.integers(-15, 16, N).astype(np.int64)
+            g_true = rng0.integers(-15, 16, N).astype(np.int64)
             try:
                 h = compute_h_py(f_true, g_true)
                 break
